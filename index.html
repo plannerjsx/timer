@@ -72,14 +72,19 @@ input{font:inherit;font-size:16px}
   <div id="adm" class="app"></div>
   <div id="dl"></div><div id="ts"></div>
 </div>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script>
 (function(){
 "use strict";
+// Firebase 메인 프로젝트 설정
+var firebaseConfig={apiKey:"AIzaSyAZKP-6cA0Sk52U3PyRnykuGk0uphuAIpk",authDomain:"timer-86a08.firebaseapp.com",projectId:"timer-86a08",storageBucket:"timer-86a08.firebasestorage.app",messagingSenderId:"643557583956",appId:"1:643557583956:web:0918a218cf837e961091c1",measurementId:"G-6XCZNTTVWM"};
+var firebaseApp=firebase.initializeApp(firebaseConfig),fbAuth=firebaseApp.auth();
 /* ───────── 설정 ───────── */
-var PID="planner-help",KEY="AIzaSyDPV3RlDIG5IKdgS6BIA54Aqe5is1HyOKQ",ROOT="projects/"+PID+"/databases/(default)/documents",BASE="https://firestore.googleapis.com/v1/"+ROOT,COL="examPlannerShared";
+var PID="timer-86a08",KEY=firebaseConfig.apiKey,ROOT="projects/"+PID+"/databases/(default)/documents",BASE="https://firestore.googleapis.com/v1/"+ROOT,COL="examPlannerShared";
 var NA=(typeof window!=="undefined"&&window.Android)||null,clk=0;/* NA: 안드로이드 앱(APK) 안에서만 존재 */
 function nowMs(){return clk||Date.now()}
-var USE_FB=false;/* 지금은 이 기기(localStorage)에만 저장. true로 바꾸면 Firebase(로그인·그룹 공유·랭킹)를 사용 */
+var USE_FB=true;/* 메인 Firestore 데이터베이스 연결: timer-86a08/(default) */
 var ROSTER={"10800":"담임","10801":"공정효","10802":"곽민우","10803":"김동균","10804":"김민수","10805":"김유비","10806":"김인혜","10807":"김재이","10808":"김지율","10809":"김진희","10810":"김현비","10811":"문선재","10812":"문현준","10813":"박건민","10814":"박지혜","10815":"손지은","10816":"손태준","10817":"신지우","10818":"이소윤","10819":"이은서","10820":"이일찬","10821":"이하랑","10822":"임진서","10823":"전예원","10824":"정선우","10825":"차명원","10826":"최태영","10827":"최현우","10828":"홍율기","10829":"황유주","10830":"황지율","10831":"황해성"};
 var PAL=["#D97B7B","#9B7FD0","#6BB5AA","#4A35C9","#A5D16F","#8DB255","#F07B3A","#4DABF7","#F783AC","#FFD43B"],A="#F07B3A";
 var DEFSUBJ=["공통국어2","공통수학2","공통영어2","한국사2","통합과학2","통합사회2","기술·가정"];
@@ -95,11 +100,11 @@ function lget(id){try{var r=localStorage.getItem("yp:"+id);return r===null?null:
 function lset(id,o){try{localStorage.setItem("yp:"+id,JSON.stringify(o));return true}catch(e){return false}}
 function ldel(id){try{localStorage.removeItem("yp:"+id);return true}catch(e){return false}}
 function llist(prefix){var out=[];try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.indexOf("yp:"+prefix)===0){try{out.push(JSON.parse(localStorage.getItem(k)))}catch(e){}}}}catch(e){}return out}
-async function fx(url,opt,ms){var c=new AbortController(),t=setTimeout(function(){c.abort()},ms||10000);try{return await fetch(url,Object.assign({},opt||{},{signal:c.signal}))}finally{clearTimeout(t)}}
+async function fx(url,opt,ms){var c=new AbortController(),t=setTimeout(function(){c.abort()},ms||10000),o=Object.assign({},opt||{});o.headers=Object.assign({},o.headers||{});if(USE_FB&&url.indexOf("firestore.googleapis.com/")>=0&&fbAuth.currentUser){try{o.headers.Authorization="Bearer "+await fbAuth.currentUser.getIdToken()}catch(e){}}try{return await fetch(url,Object.assign(o,{signal:c.signal}))}finally{clearTimeout(t)}}
 function dpath(id){return BASE+"/"+COL+"/"+encodeURIComponent(id)+"?key="+KEY}
 function parseDoc(d){try{return JSON.parse(d.fields.value.stringValue)}catch(e){return null}}
 async function dget(id){if(!USE_FB)return lget(id);try{var r=await fx(dpath(id));if(r.status===404)return null;if(!r.ok)throw 0;return parseDoc(await r.json())}catch(e){return undefined}}
-async function dset(id,o){if(!USE_FB)return lset(id,o);try{var r=await fx(dpath(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:{value:{stringValue:JSON.stringify(o)},updatedAt:{integerValue:String(Date.now())}}})});return r.ok}catch(e){return false}}
+async function dset(id,o){if(!USE_FB)return lset(id,o);try{var fields={value:{stringValue:JSON.stringify(o)},updatedAt:{integerValue:String(Date.now())}};if(id.indexOf("account:")===0&&fbAuth.currentUser)fields.ownerUid={stringValue:fbAuth.currentUser.uid};var r=await fx(dpath(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:fields})});return r.ok}catch(e){return false}}
 async function ddel(id){if(!USE_FB)return ldel(id);try{var r=await fx(dpath(id),{method:"DELETE"});return r.ok||r.status===404}catch(e){return false}}
 async function dlist(prefix){
   if(!USE_FB)return llist(prefix);
@@ -312,21 +317,23 @@ function readSe(){document.querySelectorAll(".sn").forEach(function(e){se[+e.dat
 function resetMine(){D.days={};D.tasks={};D.tsec={};D.run=null;persist();render();toast("내 기록을 초기화했어요")}
 /* ───────── 로그인 ───────── */
 function authHTML(){var h='<div>';
-  if(scr==="chooser")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:20px">로그인 또는 등록해줘</div><button class="btn" data-a="a-login" style="margin-bottom:10px">로그인</button><button class="btn g" data-a="a-reg">등록하기</button><div class="mut" style="margin-top:14px">처음이라면 등록하기에서 이름·학번과 비밀번호를 설정해줘. 이 브라우저에 계정이 저장돼.</div>';
+  if(scr==="chooser")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:20px">로그인 또는 등록해줘</div><button class="btn" data-a="a-login" style="margin-bottom:10px">로그인</button><button class="btn g" data-a="a-reg">등록하기</button><div class="mut" style="margin-top:14px">처음이라면 등록하기에서 명단에 등록된 이름·학번과 비밀번호를 설정해줘. 계정은 Firebase에 저장돼. 비밀번호는 6자 이상이야.</div>';
   else if(scr==="login")h+='<div style="font-size:22px;font-weight:800;margin-bottom:16px">학번과 비밀번호</div><div class="mut" style="margin-bottom:5px">학번</div><input id="lsid" class="in" inputmode="numeric" value="'+esc(ldr.sid)+'" placeholder="예: 10900"><div class="mut" style="margin:10px 0 5px">비밀번호</div><input id="lpw" class="in" type="password" placeholder="비밀번호"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-do"'+(busy?' disabled':'')+'>'+(busy?'확인 중...':'로그인')+'</button><button class="btn g" data-a="a-reg" style="margin-top:8px;height:40px">등록하기</button><button class="btn g" data-a="a-back" style="margin-top:8px;height:40px">뒤로</button>';
   else if(scr==="local")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:4px">이름과 학번을 입력해줘</div><div class="mut" style="margin-bottom:16px">지금은 이 기기에만 저장돼요. 서버는 나중에 연결할 수 있어요.</div><div class="mut" style="margin-bottom:5px">이름</div><input id="rname" class="in" value="'+esc(reg.name)+'" placeholder="예: 홍길동"><div class="mut" style="margin:10px 0 5px">학번</div><input id="rsid" class="in" inputmode="numeric" value="'+esc(reg.sid)+'" placeholder="예: 10900"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r1">시작하기</button>';
   else if(scr==="reg1")h+='<div style="font-size:22px;font-weight:800;margin-bottom:4px">이름과 학번을 입력해줘</div><div class="mut" style="margin-bottom:16px">명단과 일치해야 다음 단계로 넘어가</div><div class="mut" style="margin-bottom:5px">이름</div><input id="rname" class="in" value="'+esc(reg.name)+'" placeholder="예: 홍길동"><div class="mut" style="margin:10px 0 5px">학번</div><input id="rsid" class="in" inputmode="numeric" value="'+esc(reg.sid)+'" placeholder="예: 10900"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r1"'+(busy?' disabled':'')+'>'+(busy?'확인 중...':'다음')+'</button><button class="btn g" data-a="a-back" style="margin-top:8px;height:40px">뒤로</button>';
-  else if(scr==="reg2")h+='<div style="font-size:22px;font-weight:800;margin-bottom:4px">비밀번호를 만들어줘</div><div class="mut" style="margin-bottom:16px">'+esc(reg.name)+' · '+esc(reg.sid)+'</div><div class="mut" style="margin-bottom:5px">비밀번호</div><input id="rpw" class="in" type="password" placeholder="4자 이상"><div class="mut" style="margin:10px 0 5px">비밀번호 확인</div><input id="rpw2" class="in" type="password" placeholder="다시 입력"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r2"'+(busy?' disabled':'')+'>'+(busy?'등록 중...':'등록 완료')+'</button><button class="btn g" data-a="a-r1b" style="margin-top:8px;height:40px">뒤로</button>';
+  else if(scr==="reg2")h+='<div style="font-size:22px;font-weight:800;margin-bottom:4px">비밀번호를 만들어줘</div><div class="mut" style="margin-bottom:16px">'+esc(reg.name)+' · '+esc(reg.sid)+'</div><div class="mut" style="margin-bottom:5px">비밀번호</div><input id="rpw" class="in" type="password" placeholder="6자 이상"><div class="mut" style="margin:10px 0 5px">비밀번호 확인</div><input id="rpw2" class="in" type="password" placeholder="다시 입력"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r2"'+(busy?' disabled':'')+'>'+(busy?'등록 중...':'등록 완료')+'</button><button class="btn g" data-a="a-r1b" style="margin-top:8px;height:40px">뒤로</button>';
   else h+='<div class="mut" style="text-align:center;padding-top:30px">'+esc(aerr||"내 기록을 불러오는 중...")+'</div>'+(aerr?'<button class="btn" data-a="a-retry" style="margin-top:14px">다시 시도</button><button class="btn g" data-a="a-out" style="margin-top:8px;height:40px">다른 계정으로</button>':'');
   return h+'</div>'}
 function showAuth(s,e){scr=s;aerr=e||"";busy=0;$("#app").classList.remove("on");$("#adm").classList.remove("on");$("#auth").style.display="block";$("#auth").innerHTML=authHTML()}
+function studentEmail(sid){return sid+"@students.timer-86a08.com"}
+function authMessage(e){var c=e&&e.code||"";if(c.indexOf("email-already-in-use")>=0)return "이미 등록된 학번이야. 로그인 화면에서 로그인해줘.";if(c.indexOf("invalid-credential")>=0||c.indexOf("wrong-password")>=0||c.indexOf("user-not-found")>=0)return "학번 또는 비밀번호가 틀렸어.";if(c.indexOf("weak-password")>=0)return "비밀번호는 6자 이상으로 설정해줘.";if(c.indexOf("network-request-failed")>=0)return "네트워크 연결을 확인하고 다시 시도해줘.";return "인증에 실패했어. Firebase Authentication 설정과 연결 상태를 확인해줘. ("+(c||"오류")+")"}
 async function getAcc(sid){
   if(!USE_FB){try{return JSON.parse(localStorage.getItem("yp-account:"+sid)||"null")}catch(e){return null}}
   return await dget("account:"+sid)
 }
 async function saveAcc(sid,data){
   if(!USE_FB){try{localStorage.setItem("yp-account:"+sid,JSON.stringify(data));return true}catch(e){return false}}
-  return await dset("account:"+sid,data)
+  data.uid=fbAuth.currentUser?fbAuth.currentUser.uid:"";return await dset("account:"+sid,data)
 }
 async function enter(){showAuth("load");
   var c=await dget("yp-conf");if(c){conf={tabs:Object.assign({todo:1,cal:1,group:1,rank:1},c.tabs||{}),lock:c.lock?1:0,notice:c.notice||""}}
@@ -339,9 +346,14 @@ async function enter(){showAuth("load");
   scr="app";sel=today();cs=today();var n=new Date();cm={y:n.getFullYear(),m:n.getMonth()};tab="timer";tp="timer";lst=0;anim=1;
   $("#auth").style.display="none";$("#app").classList.add("on");buildTabs();$("#mn").innerHTML=menuHTML();render();nsync();if(window.nativePull)window.nativePull()}
 async function doLogin(){var sid=($("#lsid").value||"").trim(),pw=$("#lpw").value;ldr.sid=sid;if(!sid||!pw){aerr="학번과 비밀번호를 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
-  busy=1;aerr="";$("#auth").innerHTML=authHTML();var a=await getAcc(sid);busy=0;
-  if(a===undefined){aerr="네트워크 오류야. 다시 시도해줘.";}else if(!a){aerr="등록된 계정이 없어. 먼저 등록해줘."}else if(a.password!==pw){aerr="학번 또는 비밀번호가 틀렸어."}else{me={sid:a.studentId||sid,name:a.name||ROSTER[sid]||"사용자"};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();return}
+  if(!ROSTER[sid]){aerr="명단에 없는 학번이야. 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
+  busy=1;aerr="";$("#auth").innerHTML=authHTML();
+  try{await fbAuth.signInWithEmailAndPassword(studentEmail(sid),pw);var a=await getAcc(sid);busy=0;
+    if(!a||a.uid!==fbAuth.currentUser.uid||a.studentId!==sid){await fbAuth.signOut();aerr="등록 정보가 없거나 일치하지 않아. 선생님에게 문의해줘.";}
+    else{me={sid:sid,name:a.name||ROSTER[sid]};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();return}
+  }catch(e){busy=0;aerr=authMessage(e)}
   $("#auth").innerHTML=authHTML();var e2=$("#lpw");if(e2)e2.focus()}
+
 function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
@@ -349,15 +361,18 @@ function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||
 async function doReg1(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
-  busy=1;aerr="";$("#auth").innerHTML=authHTML();var a=await getAcc(sid);busy=0;
-  if(a===undefined)aerr="네트워크 오류야. 다시 시도해줘.";else if(a)aerr="이미 등록된 학번이야. 로그인 화면에서 로그인해줘.";else{scr="reg2";aerr=""}
-  $("#auth").innerHTML=authHTML()}
-async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<4){aerr="비밀번호는 4자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
+  if(sid===ADMIN){aerr="담임 계정은 다른 학생이 등록하지 못하도록 Firebase 콘솔에서 먼저 만들어야 해.";$("#auth").innerHTML=authHTML();return}
+  scr="reg2";aerr="";$("#auth").innerHTML=authHTML()}
+
+async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<6){aerr="비밀번호는 6자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(pw!==pw2){aerr="비밀번호가 서로 달라.";$("#auth").innerHTML=authHTML();return}
-  busy=1;aerr="";$("#auth").innerHTML=authHTML();var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name,password:pw});busy=0;
-  if(!ok){aerr="저장에 실패했어. 브라우저 저장 공간을 확인하고 다시 시도해줘.";$("#auth").innerHTML=authHTML();return}
-  me={sid:reg.sid,name:reg.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter()}
-function logout(){if(D&&D.run){bank();persist()}flush();try{localStorage.removeItem("ypMe")}catch(e){}me=null;D=null;pubs={};myG=[];grps=[];ldr={sid:"",pw:""};showAuth("chooser")}
+  busy=1;aerr="";$("#auth").innerHTML=authHTML();
+  try{await fbAuth.createUserWithEmailAndPassword(studentEmail(reg.sid),pw);var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name});busy=0;
+    if(!ok){aerr="계정은 만들어졌지만 학생 정보 저장에 실패했어. 선생님에게 문의해줘.";$("#auth").innerHTML=authHTML();return}
+    me={sid:reg.sid,name:reg.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();
+  }catch(e){busy=0;aerr=authMessage(e);$("#auth").innerHTML=authHTML()}}
+
+async function logout(){if(D&&D.run){bank();persist()}await flush();if(USE_FB){try{await fbAuth.signOut()}catch(e){}}try{localStorage.removeItem("ypMe")}catch(e){}me=null;D=null;pubs={};myG=[];grps=[];ldr={sid:"",pw:""};showAuth("chooser")}
 /* ───────── 담임 관리자 페이지 ───────── */
 var av="home",asid="",aD=null,accs={},agl=0,aSort="day",amx="";
 function abn(){return USE_FB?"":'<div class="mut" style="background:#2a2a2a;border-radius:10px;padding:10px 12px;margin-bottom:12px;line-height:1.6">서버(Firebase)가 연결되지 않아서 이 기기에 저장된 기록만 보여요. 모든 학생의 기록을 보려면 파일 위쪽 USE_FB를 true로 바꿔야 해요.</div>'}
@@ -385,7 +400,7 @@ function aStu(){var sid=asid,h='<div class="sc" style="padding:10px 16px 30px"><
     var c={완료:0,중간:0,안함:0,미체크:0},lim=key(new Date(now.getTime()-6*864e5));Object.keys(aD.tasks||{}).forEach(function(k){if(k>=lim&&k<=today())aD.tasks[k].forEach(function(t){c[t.st||"미체크"]++})});
     var tt=c.완료+c.중간+c.안함+c.미체크;h+='<div class="card"><div style="font-size:14px;color:#aaa;margin-bottom:6px">최근 7일 할 일</div>'+(tt?'<div style="font-size:14px">완료 '+c.완료+' · 중간 '+c.중간+' · 안함 '+c.안함+' · 미체크 '+c.미체크+' <span class="mut">(완료율 '+Math.round(c.완료/tt*100)+'%)</span></div>':'<div class="mut">등록한 할 일이 없어요.</div>')+'</div>'}
   h+='<div class="mut" style="margin:6px 0 8px">관리</div><button data-a="m-rs" class="btn g" style="color:#FF6259;margin-bottom:8px">이 학생 기록 초기화</button>';
-  if(USE_FB)h+='<div class="card"><div style="font-size:14px;margin-bottom:8px">비밀번호 초기화</div><div style="display:flex;gap:8px"><input id="npw" class="in" type="password" placeholder="새 비밀번호 (4자 이상)"><button data-a="m-pwsv" class="chip" style="flex:none;background:'+A+';color:#111">변경</button></div></div><button data-a="m-ad" class="btn g" style="color:#FF6259">계정 삭제</button>';
+  if(USE_FB)h+='<div class="card"><div style="font-size:14px;margin-bottom:8px">비밀번호 초기화</div><div style="display:flex;gap:8px"><input id="npw" class="in" type="password" placeholder="Firebase 콘솔에서 변경 (6자 이상)"><button data-a="m-pwsv" class="chip" style="flex:none;background:'+A+';color:#111">변경</button></div></div><button data-a="m-ad" class="btn g" style="color:#FF6259">계정 삭제</button>';
   return h+'</div>'}
 function aGroups(){var l=grps.slice().sort(function(a,b){return b.created-a.created}),h='<div class="sc" style="padding:14px 16px 30px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:20px;font-weight:500">그룹 관리</span><button data-a="m-rf" class="ib" aria-label="새로고침">'+I("refresh",18)+'</button></div>'+abn()+(agl?load():'');
   if(!agl&&!l.length)h+='<div class="mut" style="text-align:center;padding:30px 0">만들어진 그룹이 없어요.</div>';
@@ -412,8 +427,8 @@ async function admAct(a,el){var v=el.dataset.v,id=el.dataset.id;
   else if(a==="m-st"){asid=id;aD=undefined;$("#ab").scrollTop=0;admRender();aD=await dget("yp-data:"+id);admRender()}
   else if(a==="m-sb"){asid="";aD=null;admRender()}
   else if(a==="m-rs"){var s1=asid;dlg("기록 초기화",esc(ROSTER[s1])+" 학생의 공부 기록과 할 일을 모두 지울까요?<br>되돌릴 수 없어요.",async function(){await ddel("yp-data:"+s1);await ddel("yp-pub:"+s1);delete pubs[s1];aD=null;admRender();toast("초기화했어요")})}
-  else if(a==="m-pwsv"){var pw=($("#npw")||{}).value||"";if(pw.length<4){toast("비밀번호는 4자 이상이어야 해요");return}var ac=await dget("account:"+asid);if(!ac){toast("등록된 계정이 없어요");return}ac.password=pw;toast((await dset("account:"+asid,ac))?"비밀번호를 바꿨어요":"실패했어요")}
-  else if(a==="m-ad"){var s2=asid;dlg("계정 삭제",esc(ROSTER[s2])+" 학생의 계정을 삭제할까요?<br>다시 등록해야 로그인할 수 있어요.",async function(){var ok=await ddel("account:"+s2);delete accs[s2];admRender();toast(ok?"계정을 삭제했어요":"실패했어요")})}
+  else if(a==="m-pwsv"){var pw=($("#npw")||{}).value||"";if(pw.length<6){toast("비밀번호는 6자 이상이어야 해요");return}toast("다른 학생의 비밀번호는 Firebase Authentication 관리자 기능으로 변경해야 해요.")}
+  else if(a==="m-ad"){toast("Firebase Authentication 사용자도 함께 삭제해야 해요. Firebase 콘솔에서 해당 계정을 삭제해 주세요.")}
   else if(a==="m-gm"){amx=amx===id?"":id;admRender()}
   else if(a==="m-gd"){dlg("그룹 삭제","이 그룹을 삭제할까요?<br>멤버 모두에게서 사라져요.",async function(){await ddel("yp-group:"+id);grps=grps.filter(function(g){return g.id!==id});admRender();toast("삭제했어요")})}
   else if(a==="m-gx"){var g=grps.filter(function(x){return x.id===id})[0],c=await dget("yp-group:"+id);if(g&&c){c.members=c.members.filter(function(m){return m!==el.dataset.s});await dset("yp-group:"+id,c);g.members=c.members}admRender();toast("멤버를 내보냈어요")}
@@ -499,8 +514,7 @@ window.addEventListener("pagehide",function(){if(D&&dirty)flush()});
 setInterval(tick,250);
 setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
 /* ───────── 시작 ───────── */
-var saved=null;try{saved=JSON.parse(localStorage.getItem("ypMe")||"null")}catch(e){}
-if(saved&&saved.sid){me=saved;enter()}else showAuth("chooser");
+showAuth("chooser");
 })();
 </script>
 </body>
