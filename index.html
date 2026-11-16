@@ -81,6 +81,7 @@ input{font:inherit;font-size:16px}
 // Firebase 메인 프로젝트 설정
 var firebaseConfig={apiKey:"AIzaSyAZKP-6cA0Sk52U3PyRnykuGk0uphuAIpk",authDomain:"timer-86a08.firebaseapp.com",projectId:"timer-86a08",storageBucket:"timer-86a08.firebasestorage.app",messagingSenderId:"643557583956",appId:"1:643557583956:web:0918a218cf837e961091c1",measurementId:"G-6XCZNTTVWM"};
 var firebaseApp=firebase.initializeApp(firebaseConfig),fbAuth=firebaseApp.auth(),mainDb=firebaseApp.firestore();
+var authPersistence=fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 // Timer2~Timer6 별도 Firebase 프로젝트 초기화 (기존 학생 데이터는 Timer1에 유지)
 var firebaseConfigs={
 Timer2:{apiKey:"AIzaSyAwoIy7t6aw0zsZewg1xZSTzjQ04nTMozU",authDomain:"timer2-39b21.firebaseapp.com",projectId:"timer2-39b21",storageBucket:"timer2-39b21.firebasestorage.app",messagingSenderId:"39378832324",appId:"1:39378832324:web:0bb5efb6f7f09ddfdb3291",measurementId:"G-Y5ZFZH65VJ"},
@@ -301,12 +302,14 @@ function saveLocalAfterShop(){dirty=0;applyCosmetics();if(tab==='shop')render()}
 async function shopRoulette(){if(shopBusy)return;shopBusy=1;try{var cfg=await loadShop(),r=Math.random()*100,acc=0,pr=cfg.roulette.find(function(x){acc+=Number(x.p);return r<acc})||cfg.roulette[cfg.roulette.length-1];var out=await shopTransaction(function(u,c){if((u.points||0)<200)throw Error('포인트가 부족해요');u.points-=200;u.shopRouletteCount=(u.shopRouletteCount||0)+1;if(u.shopRouletteCount>=25)u.shopTitle='룰렛 25회 도전자';if(pr.v)u.points+=Number(pr.v);return{points:u.points,count:u.shopRouletteCount,title:u.shopTitle}});toast(pr.v?pr.v+'P 당첨!':'아쉽지만 꽝이에요');}catch(e){toast(e.message||'룰렛 처리에 실패했어요')}finally{shopBusy=0;await loadShop();render()}}
 async function shopSnack(){if(shopBusy)return;shopBusy=1;try{var cfg=await loadShop(),wins=0;for(var i=0;i<10;i++)if(Math.random()*100<Number(cfg.snack.win))wins++;var out=await shopTransaction(function(u,c){if((u.points||0)<c.snack.price)throw Error('포인트가 부족해요');u.points-=c.snack.price;if(wins){c.orders=c.orders||[];c.orders.push({id:'snack-'+me.sid+'-'+Date.now(),sid:me.sid,name:me.name,giftName:'간식 당첨 '+wins+'회',price:c.snack.price,status:'담임 확인 대기',created:Date.now()})}return{points:u.points}});if(wins){toast('10회 중 '+wins+'회 당첨! 담임 확인을 기다려 주세요.')}else toast('10회 모두 꽝이에요.');}catch(e){toast(e.message||'처리 실패')}finally{shopBusy=0;await loadShop();render()}}
 async function shopGift(id){if(shopBusy)return;shopBusy=1;try{await loadShop();var chosen=(shopCfg.gifts||[]).find(function(g){return g.id===id});if(!chosen)throw Error('상품을 찾을 수 없어요');var order={id:'gift-'+me.sid+'-'+Date.now(),sid:me.sid,name:me.name,giftId:id,giftName:chosen.name,price:chosen.price,status:'담임 확인 대기',created:Date.now()};await shopTransaction(function(u,c){var g=c.gifts.find(function(x){return x.id===id});if(!g||g.stock<1)throw Error('이미 품절된 상품이에요');if((u.points||0)<g.price)throw Error('포인트가 부족해요');g.stock-=1;u.points-=g.price;order.price=g.price;order.giftName=g.name;c.orders=c.orders||[];c.orders.push(order);return{points:u.points}});toast('교환 신청 완료! 담임 확인을 기다려 주세요.')}catch(e){toast(e.message||'교환 실패')}finally{shopBusy=0;await loadShop();render()}}
-function shopAdminPage(){var c=shopCfg||shopDefault();return '<div class="sc" style="padding:14px 14px 30px"><div style="font-size:22px;font-weight:650;margin-bottom:12px">상점 관리자 <span class="mut">10805</span></div>'+shopCard('룰렛 확률 설정',c.roulette.map(function(x,i){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="width:65px">'+(x.v?x.v+'P':'꽝')+'</span><input class="in" type="number" min="0" max="100" id="rp'+i+'" value="'+x.p+'" style="width:85px"><span class="mut">%</span></div>'}).join('')+'<div class="mut">합계가 정확히 100%여야 저장돼요.</div><button data-a="shop-save-prob" class="btn" style="margin-top:10px">확률 저장</button>')+shopCard('가격 설정','<div class="mut">룰렛 1회 고정 200P</div><label class="mut">간식 10뽑 가격</label><input class="in" id="snackprice" type="number" value="'+c.snack.price+'"><label class="mut">간식 당첨 확률 (%)</label><input class="in" id="snackwin" type="number" min="0" max="100" value="'+c.snack.win+'">'+c.gifts.map(function(g){return '<label class="mut">'+g.name+' 需要 포인트</label><input class="in" id="price-'+g.id+'" type="number" value="'+g.price+'">'}).join('')+'<button data-a="shop-save-prices" class="btn" style="margin-top:10px">가격 저장</button>')+shopCard('학생 포인트 조정','<label class="mut">학번</label><input class="in" id="point-sid" placeholder="예: 10801"><label class="mut">변경 포인트 (+/- 가능)</label><input class="in" id="point-delta" type="number" placeholder="예: 500 또는 -100"><button data-a="shop-adjust" class="btn" style="margin-top:10px">포인트 조정</button>')+shopCard('기프트카드 재고','각 상품 선착순 1개가 기본이에요. 품절 후 재입고 수량을 지정할 수 있어요.'+c.gifts.map(function(g){return '<div style="display:flex;gap:8px;align-items:center;padding:6px 0"><span style="flex:1">'+g.name+' · 재고 '+g.stock+'</span><input class="in" id="stock-'+g.id+'" type="number" min="0" value="'+g.stock+'" style="width:75px"></div>'}).join('')+'<button data-a="shop-stock" class="btn" style="margin-top:10px">재고 저장</button>')+'</div>'}
-async function enterShopAdmin(){scr='shopadmin';av='shopadmin';$('#auth').style.display='none';$('#app').classList.remove('on');$('#adm').classList.add('on');await loadShop();$('#adm').innerHTML='<div class="yt"><span style="font-weight:600">10805 전용 상점 관리</span><button data-a="m-lo" class="chip" style="margin-left:auto">로그아웃</button></div><div class="yb" id="ab">'+shopAdminPage()+'</div>'}
-function teacherShopOrders(){var c=shopCfg||shopDefault(),orders=(c.orders||[]).slice().sort(function(a,b){return b.created-a.created});return '<div class="sc" style="padding:14px 14px 30px"><div style="font-size:21px;font-weight:650;margin-bottom:12px">상점 교환 알림</div>'+(orders.length?orders.map(function(o){return '<div class="card" style="margin-bottom:9px"><b>'+esc(o.giftName)+'</b><div class="mut">'+esc(o.name)+' · '+o.sid+' · '+Number(o.price).toLocaleString()+'P</div><div class="mut">'+new Date(o.created).toLocaleString()+' · '+esc(o.status)+'</div></div>'}).join(''):'<div class="mut">아직 교환 신청이 없어요.</div>')+'</div>'}
+function shopAdminPage(){var c=shopCfg||shopDefault();return '<div class="sc" style="padding:14px 14px 30px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button data-a="shop-admin-back" class="ib" aria-label="뒤로">'+I("cl")+'</button><div style="font-size:22px;font-weight:650">관리자 설정 <span class="mut">10805</span></div></div>'+shopCard('룰렛 확률 설정',c.roulette.map(function(x,i){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="width:65px">'+(x.v?x.v+'P':'꽝')+'</span><input class="in" type="number" min="0" max="100" id="rp'+i+'" value="'+x.p+'" style="width:85px"><span class="mut">%</span></div>'}).join('')+'<div class="mut">확률 합계가 정확히 100%여야 저장돼요.</div><button data-a="shop-save-prob" class="btn" style="margin-top:10px">확률 저장</button>')+shopCard('상품 가격 설정','<label class="mut">간식 10뽑 가격 (P)</label><input class="in" id="snackprice" type="number" min="0" value="'+c.snack.price+'">'+c.gifts.map(function(g){return '<label class="mut">'+esc(g.name)+' 가격 (P)</label><input class="in" id="price-'+g.id+'" type="number" min="0" value="'+g.price+'" style="margin-bottom:8px">'}).join('')+'<button data-a="shop-save-prices" class="btn" style="margin-top:10px">가격 저장</button>')+shopCard('학생별 포인트 조정','<label class="mut">학생 학번</label><input class="in" id="point-sid" inputmode="numeric" placeholder="예: 10801"><label class="mut">변경할 포인트 (+/-)</label><input class="in" id="point-delta" type="number" placeholder="예: 500 또는 -100"><button data-a="shop-adjust" class="btn" style="margin-top:10px">포인트 변경</button>')+'</div>'}
+async function enterShopAdmin(){await loadShop();tab="shopadmin";render()}
+function teacherShopOrders(){var c=shopCfg||shopDefault(),orders=(c.orders||[]).filter(function(o){return !!o.giftId||String(o.giftName||"").indexOf("기프트카드")>=0}).sort(function(a,b){return b.created-a.created});return '<div class="sc" style="padding:14px 14px 30px"><div style="font-size:21px;font-weight:650;margin-bottom:12px">기프트카드 구매 알림</div><div class="mut" style="margin-bottom:12px">기프트카드 구매 신청만 표시됩니다.</div>'+(orders.length?orders.map(function(o){return '<div class="card" style="margin-bottom:9px"><b>'+esc(o.giftName)+'</b><div class="mut">'+esc(o.name)+' · '+o.sid+' · '+Number(o.price).toLocaleString()+'P</div><div class="mut">'+new Date(o.created).toLocaleString()+' · '+esc(o.status)+'</div></div>'}).join(''):'<div class="mut">새 기프트카드 구매 신청이 없어요.</div>')+'</div>'}
+async function enterTeacherOrders(){scr="teacherorders";$("#auth").style.display="none";$("#app").classList.remove("on");$("#adm").classList.add("on");await loadShop();teacherOrdersRender()}
+function teacherOrdersRender(){if(scr!=="teacherorders")return;$("#adm").innerHTML='<div class="yt"><span style="font-weight:600">10800 · 기프트카드 알림</span><button data-a="to-refresh" class="chip" style="margin-left:auto">새로고침</button><button data-a="m-lo" class="chip">로그아웃</button></div><div class="yb">'+teacherShopOrders()+'</div>'}
 
 function render(){if(scr!=="app")return;var wa=anim,ai=$("#ai");if(ai)adv=ai.value;
-  var h=tab==="timer"?(D.run&&!lst?focus():list()):tab==="todo"?todo():tab==="cal"?cal():tab==="group"?grp():tab==="rank"?rank():tab==="stats"?stats():tab==="shop"?shopPage():settings();
+  var h=tab==="timer"?(D.run&&!lst?focus():list()):tab==="todo"?todo():tab==="cal"?cal():tab==="group"?grp():tab==="rank"?rank():tab==="stats"?stats():tab==="shop"?shopPage():tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN?shopAdminPage():settings();
   var yb=$("#yb"),st=yb.scrollTop;yb.innerHTML=h;if(!wa&&st)yb.scrollTop=st;
   document.querySelectorAll("#yt button.t").forEach(function(b){b.classList.toggle("on",b.dataset.t===tab)});paint();tick();
   var fm=tab==="group"&&(gv==="list"||gv==="browse"),fb=$("#fab");fb.style.display=fm?"flex":"none";if(fm)fb.innerHTML=gv==="list"?I("uplus",22):'<span style="color:'+A+'">'+I("plus",24)+'</span>';
@@ -324,7 +327,7 @@ function tick(){if(scr!=="app"||!D)return;syncPoints();var a=act(),e,r=D.run;
     if(r.task){if(e=$("#ftt"))e.textContent=T(tcur(r.task));if(e=$("#fb"))e.style.width=Math.min(100,a/18)+"%"}
     $("#sa").textContent=T(a);$("#sf").textContent=hm(r.t0)+" - 진행중 ("+Math.floor(a/60)+"분)";$("#sr").textContent=r.rc+"회 ("+Math.floor(r.rs+(r.paused?(Date.now()-r.rst)/1000:0))+"초)";$("#sm").style.left=Math.min(98,a/18)+"%"}}
 function openSheet(){var r=D.run;if(!r)return;var t=r.task?ft(r.task):null;$("#sk").textContent=t?t.t:"집중 중";$("#ss").textContent=SB(r.s).n;$("#sl").textContent=hm(r.t0);$("#se").textContent=hm(r.t0+1800000);$("#sh").classList.add("on")}
-function menuHTML(){return '<div class="mut">주요기능</div><button class="mi" data-a="go" data-t="stats">'+I("bar")+'통계</button>'+(conf.tabs.rank!==0?'<button class="mi" data-a="go" data-t="rank">'+I("star")+'랭킹</button>':'')+'<div class="mut" style="margin-top:6px">기타</div><button class="mi" data-a="go" data-t="settings">'+I("gear")+'설정</button>'}
+function menuHTML(){return '<div class="mut">주요기능</div><button class="mi" data-a="go" data-t="stats">'+I("bar")+'통계</button>'+(conf.tabs.rank!==0?'<button class="mi" data-a="go" data-t="rank">'+I("star")+'랭킹</button>':'')+'<div class="mut" style="margin-top:6px">기타</div><button class="mi" data-a="go" data-t="settings">'+I("gear")+'설정</button>'+(me&&me.sid===SHOP_ADMIN?'<button class="mi" data-a="go" data-t="shopadmin">'+I("gear")+'관리자 설정</button>':'')}
 /* ───────── 동작 ───────── */
 function addTask(){var e=$("#ai"),v=e?e.value.trim():"";if(!v)return;var n=DD.rp===1?14:DD.rp===2?8:1,step=DD.rp===2?7:1,i,base=new Date(sel+"T00:00:00");
   for(i=0;i<n;i++){var d=new Date(base);d.setDate(d.getDate()+i*step);var k=key(d);(D.tasks[k]=D.tasks[k]||[]).push({id:D.nid++,s:DD.s,t:v,st:"",start:START[DD.st],dur:DUR[DD.du],rep:REP[DD.rp]})}
@@ -371,8 +374,8 @@ async function saveAcc(sid,data){
 }
 async function enter(){showAuth("load");
   var c=await dget("yp-conf");if(c){conf={tabs:Object.assign({todo:1,cal:1,group:1,rank:1},c.tabs||{}),lock:c.lock?1:0,notice:c.notice||""}}
-  if(me.sid===ADMIN){enterAdmin();return}if(me.sid===SHOP_ADMIN){enterShopAdmin();return}
-  if(conf.lock){showAuth("load","지금은 담임 선생님이 접속을 잠가 두었어요. 나중에 다시 시도해줘.");return}
+  if(me.sid===ADMIN){enterTeacherOrders();return}
+  if(conf.lock&&me.sid!==SHOP_ADMIN){showAuth("load","지금은 담임 선생님이 접속을 잠가 두었어요. 나중에 다시 시도해줘.");return}
   var d=await dget("yp-data:"+me.sid);
   if(d===undefined){showAuth("load","불러오지 못했어. 네트워크를 확인하고 다시 시도해줘.");return}
   D=d||newD();await loadShop();var base=newD();Object.keys(base).forEach(function(k){if(D[k]===undefined)D[k]=base[k]});
@@ -382,7 +385,7 @@ async function enter(){showAuth("load");
 async function doLogin(){var sid=($("#lsid").value||"").trim(),pw=$("#lpw").value;ldr.sid=sid;if(!sid||!pw){aerr="학번과 비밀번호를 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]){aerr="명단에 없는 학번이야. 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
   busy=1;aerr="";$("#auth").innerHTML=authHTML();
-  try{await fbAuth.signInWithEmailAndPassword(studentEmail(sid),pw);var a=await getAcc(sid);busy=0;
+  try{await authPersistence;await fbAuth.signInWithEmailAndPassword(studentEmail(sid),pw);var a=await getAcc(sid);busy=0;
     if(!a||a.uid!==fbAuth.currentUser.uid||a.studentId!==sid){await fbAuth.signOut();aerr="등록 정보가 없거나 일치하지 않아. 선생님에게 문의해줘.";}
     else{me={sid:sid,name:a.name||ROSTER[sid]};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();return}
   }catch(e){busy=0;aerr=authMessage(e)}
@@ -395,13 +398,13 @@ function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||
 async function doReg1(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
-  if(sid===ADMIN){aerr="담임 계정은 다른 학생이 등록하지 못하도록 Firebase 콘솔에서 먼저 만들어야 해.";$("#auth").innerHTML=authHTML();return}
+  if(sid===ADMIN||sid===SHOP_ADMIN){aerr="관리자 계정은 직접 등록할 수 없어요. Firebase에서 관리자가 계정을 먼저 만들어야 해.";$("#auth").innerHTML=authHTML();return}
   scr="reg2";aerr="";$("#auth").innerHTML=authHTML()}
 
 async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<6){aerr="비밀번호는 6자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(pw!==pw2){aerr="비밀번호가 서로 달라.";$("#auth").innerHTML=authHTML();return}
   busy=1;aerr="";$("#auth").innerHTML=authHTML();
-  try{await fbAuth.createUserWithEmailAndPassword(studentEmail(reg.sid),pw);var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name});busy=0;
+  try{await authPersistence;await fbAuth.createUserWithEmailAndPassword(studentEmail(reg.sid),pw);var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name});busy=0;
     if(!ok){aerr="계정은 만들어졌지만 학생 정보 저장에 실패했어. 선생님에게 문의해줘.";$("#auth").innerHTML=authHTML();return}
     me={sid:reg.sid,name:reg.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();
   }catch(e){busy=0;aerr=authMessage(e);$("#auth").innerHTML=authHTML()}}
@@ -472,7 +475,7 @@ async function admAct(a,el){var v=el.dataset.v,id=el.dataset.id;
   else if(a==="m-all")dlg("모든 학생 기록 초기화","모든 학생의 공부 기록과 할 일이 지워져요.<br>되돌릴 수 없어요.",function(){dlg("한 번 더 확인","정말 모든 학생의 기록을 지울까요?",async function(){var ids=Object.keys(ROSTER).filter(function(i){return i!==ADMIN});await Promise.all(ids.map(function(i){return Promise.all([ddel("yp-data:"+i),ddel("yp-pub:"+i)])}));pubs={};admRender();toast("모든 학생 기록을 초기화했어요")})});
   else if(a==="m-allg")dlg("모든 그룹 삭제","만들어진 그룹이 모두 삭제돼요.<br>되돌릴 수 없어요.",async function(){await Promise.all(grps.map(function(g){return ddel("yp-group:"+g.id)}));grps=[];admRender();toast("모든 그룹을 삭제했어요")});
   else if(a==="m-lo")dlg("로그아웃","로그아웃할까요?",logout)}
-async function shopAct(a,el){if(a==='shop-roulette')return shopRoulette();if(a==='shop-snack')return shopSnack();if(a==='shop-gift')return shopGift(el.dataset.id);if(me&&me.sid==='10805'){var c=shopCfg||await loadShop();if(a==='shop-save-prob'){var sum=0;c.roulette.forEach(function(x,i){x.p=Number($('#rp'+i).value);sum+=x.p});if(c.roulette.some(function(x){return !Number.isFinite(x.p)||x.p<0||x.p>100})||sum!==100){toast('확률 합계는 100%여야 해요');return}shopCfg=c;toast(await shopSave()?'확률을 저장했어요':'저장 실패');return}if(a==='shop-save-prices'){c.snack.price=Math.max(0,Number($('#snackprice').value)||0);c.snack.win=Math.max(0,Math.min(100,Number($('#snackwin').value)||0));c.gifts.forEach(function(g){g.price=Math.max(0,Number($('#price-'+g.id).value)||0)});shopCfg=c;toast(await shopSave()?'가격을 저장했어요':'저장 실패');return}if(a==='shop-stock'){c.gifts.forEach(function(g){g.stock=Math.max(0,Math.floor(Number($('#stock-'+g.id).value)||0))});shopCfg=c;toast(await shopSave()?'재고를 저장했어요':'저장 실패');return}if(a==='shop-adjust'){var sid=($('#point-sid').value||'').trim(),delta=Number($('#point-delta').value);if(!ROSTER[sid]||sid==='10800'||sid==='10805'||!Number.isFinite(delta)||!delta){toast('학번과 변경 포인트를 확인해 주세요');return}try{var ref=mainDb.collection(COL).doc('yp-data:'+sid);await mainDb.runTransaction(async function(tx){var ds=await tx.get(ref),u=ds.exists?JSON.parse(ds.data().value||'{}'):newD();u.points=Math.max(0,(Number(u.points)||0)+delta);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()})});toast('학생 포인트를 조정했어요')}catch(e){toast('포인트 조정 실패')}return}}}
+async function shopAct(a,el){if(a==='shop-roulette')return shopRoulette();if(a==='shop-snack')return shopSnack();if(a==='shop-gift')return shopGift(el.dataset.id);if(me&&me.sid===SHOP_ADMIN&&tab==='shopadmin'){var c=shopCfg||await loadShop();if(a==='shop-save-prob'){var sum=0;c.roulette.forEach(function(x,i){x.p=Number($('#rp'+i).value);sum+=x.p});if(c.roulette.some(function(x){return !Number.isFinite(x.p)||x.p<0||x.p>100})||sum!==100){toast('확률 합계는 100%여야 해요');return}shopCfg=c;toast(await shopSave()?'확률을 저장했어요':'저장 실패');return}if(a==='shop-save-prices'){c.snack.price=Math.max(0,Number($('#snackprice').value)||0);c.gifts.forEach(function(g){g.price=Math.max(0,Number($('#price-'+g.id).value)||0)});shopCfg=c;toast(await shopSave()?'가격을 저장했어요':'저장 실패');return}if(a==='shop-adjust'){var sid=($('#point-sid').value||'').trim(),delta=Number($('#point-delta').value);if(!ROSTER[sid]||sid==='10800'||sid==='10805'||!Number.isFinite(delta)||!delta){toast('학번과 변경 포인트를 확인해 주세요');return}try{var ref=mainDb.collection(COL).doc('yp-data:'+sid);await mainDb.runTransaction(async function(tx){var ds=await tx.get(ref),u=ds.exists?JSON.parse(ds.data().value||'{}'):newD();u.points=Math.max(0,(Number(u.points)||0)+delta);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()})});toast('학생 포인트를 조정했어요')}catch(e){toast('포인트 조정 실패')}return}}}
 /* ───────── 이벤트 ───────── */
 function buildTabs(){$("#yt").innerHTML=[["timer","stopwatch","타이머"],["todo","checkbox","할 일"],["cal","calendar","달력"],["group","users","그룹"],["shop","star","상점"]].filter(function(t){return t[0]==="timer"||conf.tabs[t[0]]!==0}).map(function(t){return '<button class="t" data-a="tab" data-t="'+t[0]+'">'+I(t[1],17)+t[2]+'</button>'}).join("")+'<button data-a="menu" class="ib" aria-label="메뉴" style="width:38px;flex:none">'+I("grid",22)+'</button>'}
 $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
@@ -483,11 +486,13 @@ $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
     if(a==="a-login")showAuth("login");else if(a==="a-reg")showAuth("reg1");else if(a==="a-back")showAuth("chooser");
     else if(a==="a-do")doLogin();else if(a==="a-r1")doReg1();else if(a==="a-r2")doReg2();else if(a==="a-r1b")showAuth("reg1");
     else if(a==="a-retry")enter();else if(a==="a-out")logout();return}
+  if(a==="to-refresh"){loadShop().then(teacherOrdersRender);return}
+  if(a==="shop-admin-back"){tab="timer";anim=1;render();return}
   if(a.slice(0,2)==="m-"){admAct(a,el);return}
   if(a.indexOf("shop-")===0){shopAct(a,el);return}
   if(a==="tab"){tab=el.dataset.t;tp=tab;anim=1;pop=0;addTo="";adv="";if(tab==="group"){gv="list";loadG(false,0)}if(tab==="shop")loadShop().then(render);render()}
   else if(a==="menu")$("#mn").classList.toggle("on");
-  else if(a==="go"){$("#mn").classList.remove("on");tab=el.dataset.t;anim=1;render();if(tab==="rank")loadG(false,0)}
+  else if(a==="go"){$("#mn").classList.remove("on");tab=el.dataset.t;anim=1;if(tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN)loadShop().then(render);else render();if(tab==="rank")loadG(false,0)}
   else if(a==="back"){tab=tp;anim=1;render()}
   else if(a==="soon")toast("준비 중이에요");
   else if(a==="lo")dlg("로그아웃","로그아웃할까요?",logout);
@@ -551,7 +556,18 @@ window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused)
 setInterval(tick,250);
 setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
 /* ───────── 시작 ───────── */
-showAuth("chooser");
+showAuth("load");
+fbAuth.onAuthStateChanged(async function(user){
+  if(!user){if(!me&&scr==="load")showAuth("chooser");return}
+  if(me&&me.sid===String(user.email||"").split("@")[0])return;
+  try{
+    var sid=String(user.email||"").split("@")[0],acc=await getAcc(sid);
+    if(!ROSTER[sid]||!acc||acc.uid!==user.uid||acc.studentId!==sid){await fbAuth.signOut();me=null;showAuth("chooser","계정 정보를 확인할 수 없어요. 관리자에게 문의해 주세요.");return}
+    me={sid:sid,name:acc.name||ROSTER[sid]};
+    try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}
+    await enter();
+  }catch(e){showAuth("load","로그인 정보를 복원하지 못했어요. 네트워크를 확인해 주세요.")}
+});
 })();
 </script>
 </body>
