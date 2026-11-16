@@ -312,7 +312,7 @@ function readSe(){document.querySelectorAll(".sn").forEach(function(e){se[+e.dat
 function resetMine(){D.days={};D.tasks={};D.tsec={};D.run=null;persist();render();toast("내 기록을 초기화했어요")}
 /* ───────── 로그인 ───────── */
 function authHTML(){var h='<div>';
-  if(scr==="chooser")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:20px">로그인 또는 등록해줘</div><button class="btn" data-a="a-login" style="margin-bottom:10px">로그인</button><button class="btn g" data-a="a-reg">등록하기</button><div class="mut" style="margin-top:14px">기존 시험 플래너 계정(학번·비밀번호)을 그대로 쓸 수 있어.</div>';
+  if(scr==="chooser")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:20px">로그인 또는 등록해줘</div><button class="btn" data-a="a-login" style="margin-bottom:10px">로그인</button><button class="btn g" data-a="a-reg">등록하기</button><div class="mut" style="margin-top:14px">처음이라면 등록하기에서 이름·학번과 비밀번호를 설정해줘. 이 브라우저에 계정이 저장돼.</div>';
   else if(scr==="login")h+='<div style="font-size:22px;font-weight:800;margin-bottom:16px">학번과 비밀번호</div><div class="mut" style="margin-bottom:5px">학번</div><input id="lsid" class="in" inputmode="numeric" value="'+esc(ldr.sid)+'" placeholder="예: 10900"><div class="mut" style="margin:10px 0 5px">비밀번호</div><input id="lpw" class="in" type="password" placeholder="비밀번호"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-do"'+(busy?' disabled':'')+'>'+(busy?'확인 중...':'로그인')+'</button><button class="btn g" data-a="a-back" style="margin-top:8px;height:40px">뒤로</button>';
   else if(scr==="local")h+='<div class="mut" style="margin-bottom:6px">공부 타이머</div><div style="font-size:22px;font-weight:800;margin-bottom:4px">이름과 학번을 입력해줘</div><div class="mut" style="margin-bottom:16px">지금은 이 기기에만 저장돼요. 서버는 나중에 연결할 수 있어요.</div><div class="mut" style="margin-bottom:5px">이름</div><input id="rname" class="in" value="'+esc(reg.name)+'" placeholder="예: 홍길동"><div class="mut" style="margin:10px 0 5px">학번</div><input id="rsid" class="in" inputmode="numeric" value="'+esc(reg.sid)+'" placeholder="예: 10900"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r1">시작하기</button>';
   else if(scr==="reg1")h+='<div style="font-size:22px;font-weight:800;margin-bottom:4px">이름과 학번을 입력해줘</div><div class="mut" style="margin-bottom:16px">명단과 일치해야 다음 단계로 넘어가</div><div class="mut" style="margin-bottom:5px">이름</div><input id="rname" class="in" value="'+esc(reg.name)+'" placeholder="예: 홍길동"><div class="mut" style="margin:10px 0 5px">학번</div><input id="rsid" class="in" inputmode="numeric" value="'+esc(reg.sid)+'" placeholder="예: 10900"><div class="err">'+esc(aerr)+'</div><button class="btn" data-a="a-r1"'+(busy?' disabled':'')+'>'+(busy?'확인 중...':'다음')+'</button><button class="btn g" data-a="a-back" style="margin-top:8px;height:40px">뒤로</button>';
@@ -320,7 +320,14 @@ function authHTML(){var h='<div>';
   else h+='<div class="mut" style="text-align:center;padding-top:30px">'+esc(aerr||"내 기록을 불러오는 중...")+'</div>'+(aerr?'<button class="btn" data-a="a-retry" style="margin-top:14px">다시 시도</button><button class="btn g" data-a="a-out" style="margin-top:8px;height:40px">다른 계정으로</button>':'');
   return h+'</div>'}
 function showAuth(s,e){scr=s;aerr=e||"";busy=0;$("#app").classList.remove("on");$("#adm").classList.remove("on");$("#auth").style.display="block";$("#auth").innerHTML=authHTML()}
-async function getAcc(sid){return await dget("account:"+sid)}
+async function getAcc(sid){
+  if(!USE_FB){try{return JSON.parse(localStorage.getItem("yp-account:"+sid)||"null")}catch(e){return null}}
+  return await dget("account:"+sid)
+}
+async function saveAcc(sid,data){
+  if(!USE_FB){try{localStorage.setItem("yp-account:"+sid,JSON.stringify(data));return true}catch(e){return false}}
+  return await dset("account:"+sid,data)
+}
 async function enter(){showAuth("load");
   var c=await dget("yp-conf");if(c){conf={tabs:Object.assign({todo:1,cal:1,group:1,rank:1},c.tabs||{}),lock:c.lock?1:0,notice:c.notice||""}}
   if(me.sid===ADMIN){enterAdmin();return}
@@ -333,13 +340,13 @@ async function enter(){showAuth("load");
   $("#auth").style.display="none";$("#app").classList.add("on");buildTabs();$("#mn").innerHTML=menuHTML();render();nsync();if(window.nativePull)window.nativePull()}
 async function doLogin(){var sid=($("#lsid").value||"").trim(),pw=$("#lpw").value;ldr.sid=sid;if(!sid||!pw){aerr="학번과 비밀번호를 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   busy=1;aerr="";$("#auth").innerHTML=authHTML();var a=await getAcc(sid);busy=0;
-  if(a===undefined){aerr="네트워크 오류야. 다시 시도해줘.";}else if(!a){aerr="등록된 계정이 없어. 먼저 등록해줘."}else if(a.password!==pw){aerr="학번 또는 비밀번호가 틀렸어."}else{me={sid:a.studentId,name:a.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();return}
+  if(a===undefined){aerr="네트워크 오류야. 다시 시도해줘.";}else if(!a){aerr="등록된 계정이 없어. 먼저 등록해줘."}else if(a.password!==pw){aerr="학번 또는 비밀번호가 틀렸어."}else{me={sid:a.studentId||sid,name:a.name||ROSTER[sid]||"사용자"};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();return}
   $("#auth").innerHTML=authHTML();var e2=$("#lpw");if(e2)e2.focus()}
 function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
   me={sid:sid,name:nm};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter()}
-async function doReg1(){if(!USE_FB){doLocal();return}var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
+async function doReg1(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
   busy=1;aerr="";$("#auth").innerHTML=authHTML();var a=await getAcc(sid);busy=0;
@@ -347,10 +354,10 @@ async function doReg1(){if(!USE_FB){doLocal();return}var nm=($("#rname").value||
   $("#auth").innerHTML=authHTML()}
 async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<4){aerr="비밀번호는 4자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(pw!==pw2){aerr="비밀번호가 서로 달라.";$("#auth").innerHTML=authHTML();return}
-  busy=1;aerr="";$("#auth").innerHTML=authHTML();var ok=await dset("account:"+reg.sid,{studentId:reg.sid,name:reg.name,password:pw});busy=0;
-  if(!ok){aerr="저장에 실패했어. 네트워크를 확인하고 다시 시도해줘.";$("#auth").innerHTML=authHTML();return}
+  busy=1;aerr="";$("#auth").innerHTML=authHTML();var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name,password:pw});busy=0;
+  if(!ok){aerr="저장에 실패했어. 브라우저 저장 공간을 확인하고 다시 시도해줘.";$("#auth").innerHTML=authHTML();return}
   me={sid:reg.sid,name:reg.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter()}
-function logout(){if(D&&D.run){bank();persist()}flush();try{localStorage.removeItem("ypMe")}catch(e){}me=null;D=null;pubs={};myG=[];grps=[];ldr={sid:"",pw:""};showAuth(USE_FB?"chooser":"local")}
+function logout(){if(D&&D.run){bank();persist()}flush();try{localStorage.removeItem("ypMe")}catch(e){}me=null;D=null;pubs={};myG=[];grps=[];ldr={sid:"",pw:""};showAuth("chooser")}
 /* ───────── 담임 관리자 페이지 ───────── */
 var av="home",asid="",aD=null,accs={},agl=0,aSort="day",amx="";
 function abn(){return USE_FB?"":'<div class="mut" style="background:#2a2a2a;border-radius:10px;padding:10px 12px;margin-bottom:12px;line-height:1.6">서버(Firebase)가 연결되지 않아서 이 기기에 저장된 기록만 보여요. 모든 학생의 기록을 보려면 파일 위쪽 USE_FB를 true로 바꿔야 해요.</div>'}
@@ -493,9 +500,8 @@ setInterval(tick,250);
 setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
 /* ───────── 시작 ───────── */
 var saved=null;try{saved=JSON.parse(localStorage.getItem("ypMe")||"null")}catch(e){}
-if(saved&&saved.sid){me=saved;enter()}else showAuth(USE_FB?"chooser":"local");
+if(saved&&saved.sid){me=saved;enter()}else showAuth("chooser");
 })();
 </script>
 </body>
 </html>
-
