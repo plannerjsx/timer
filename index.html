@@ -9,7 +9,7 @@
 <title>공부 타이머</title>
 <style>
 :root{color-scheme:dark}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:var(--user-font,'Pretendard'),-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif}
 html,body{margin:0;height:100%;background:#1b1b1b;color:#ececec}
 button{border:0;background:none;color:inherit;font:inherit;cursor:pointer;padding:0}
 input{font:inherit;font-size:16px}
@@ -80,19 +80,20 @@ input{font:inherit;font-size:16px}
 "use strict";
 // Firebase 메인 프로젝트 설정
 var firebaseConfig={apiKey:"AIzaSyAZKP-6cA0Sk52U3PyRnykuGk0uphuAIpk",authDomain:"timer-86a08.firebaseapp.com",projectId:"timer-86a08",storageBucket:"timer-86a08.firebasestorage.app",messagingSenderId:"643557583956",appId:"1:643557583956:web:0918a218cf837e961091c1",measurementId:"G-6XCZNTTVWM"};
-var firebaseApp=firebase.initializeApp(firebaseConfig,"Timer"),fbAuth=firebaseApp.auth();
-var timer2Config={apiKey:"AIzaSyAwoIy7t6aw0zsZewg1xZSTzjQ04nTMozU",authDomain:"timer2-39b21.firebaseapp.com",projectId:"timer2-39b21",storageBucket:"timer2-39b21.firebasestorage.app",messagingSenderId:"39378832324",appId:"1:39378832324:web:0bb5efb6f7f09ddfdb3291",measurementId:"G-Y5ZFZH65VJ"};
-var timer3Config={apiKey:"AIzaSyAFOd6xy4LKq6PUN6qKr14LTavkUfxRDdE",authDomain:"timer3-73cb7.firebaseapp.com",projectId:"timer3-73cb7",storageBucket:"timer3-73cb7.firebasestorage.app",messagingSenderId:"455572369036",appId:"1:455572369036:web:6cc0ddefc44000090115a9",measurementId:"G-DF3GFXJHYC"};
-var timer2App=firebase.initializeApp(timer2Config,"Timer2"),timer3App=firebase.initializeApp(timer3Config,"Timer3");
-var timerDb=firebaseApp.firestore(),timer2Db=timer2App.firestore(),timer3Db=timer3App.firestore();
+var firebaseApp=firebase.initializeApp(firebaseConfig),fbAuth=firebaseApp.auth();
+// Timer2~Timer5 별도 Firebase 프로젝트 초기화 (기존 학생 데이터는 Timer1에 유지)
+var firebaseConfigs={
+Timer2:{apiKey:"AIzaSyAwoIy7t6aw0zsZewg1xZSTzjQ04nTMozU",authDomain:"timer2-39b21.firebaseapp.com",projectId:"timer2-39b21",storageBucket:"timer2-39b21.firebasestorage.app",messagingSenderId:"39378832324",appId:"1:39378832324:web:0bb5efb6f7f09ddfdb3291",measurementId:"G-Y5ZFZH65VJ"},
+Timer3:{apiKey:"AIzaSyAFOd6xy4LKq6PUN6qKr14LTavkUfxRDdE",authDomain:"timer3-73cb7.firebaseapp.com",projectId:"timer3-73cb7",storageBucket:"timer3-73cb7.firebasestorage.app",messagingSenderId:"455572369036",appId:"1:455572369036:web:6cc0ddefc44000090115a9",measurementId:"G-DF3GFXJHYC"},
+Timer4:{apiKey:"AIzaSyBy2FJx5FOZY2b_Aoyi1i5EBkt5S4Egvhg",authDomain:"timer4.firebaseapp.com",projectId:"timer4",storageBucket:"timer4.firebasestorage.app",messagingSenderId:"833276626032",appId:"1:833276626032:web:1cad18ca0407788bc7a0b5",measurementId:"G-TVZVG42LTH"},
+Timer5:{apiKey:"AIzaSyCl5cyd1ow9qmlBhfOK9fQgu2pdtE4K-Gc",authDomain:"timer5-adb5a.firebaseapp.com",projectId:"timer5-adb5a",storageBucket:"timer5-adb5a.firebasestorage.app",messagingSenderId:"103345887152",appId:"1:103345887152:web:ff24c1b8745543ad00a875",measurementId:"G-L1XP6SFJ66"}
+};
+var extraFirebase={};Object.keys(firebaseConfigs).forEach(function(n){var app=firebase.initializeApp(firebaseConfigs[n],n);extraFirebase[n]={app:app,db:app.firestore()};});
 /* ───────── 설정 ───────── */
 var PID="timer-86a08",KEY=firebaseConfig.apiKey,ROOT="projects/"+PID+"/databases/(default)/documents",BASE="https://firestore.googleapis.com/v1/"+ROOT,COL="examPlannerShared";
 var NA=(typeof window!=="undefined"&&window.Android)||null,clk=0;/* NA: 안드로이드 앱(APK) 안에서만 존재 */
 function nowMs(){return clk||Date.now()}
-var USE_FB=true;/* 플래너 데이터의 기본 저장소는 Timer(timer-86a08)입니다. */
- /* Timer2/Timer3도 Firebase 앱과 Firestore 클라이언트로 초기화되어 있습니다.
-    현재 기존 플래너의 dget/dset/ddel/dlist 데이터 저장·조회는 기존 구조를 보존해 Timer를 사용합니다.
-    Timer2/Timer3에 어떤 데이터(예: 기록/그룹/캘린더)를 분리 저장할지는 별도 배분이 필요합니다. */
+var USE_FB=true;/* 메인 Firestore 데이터베이스 연결: timer-86a08/(default) */
 var ROSTER={"10800":"담임","10801":"공정효","10802":"곽민우","10803":"김동균","10804":"김민수","10805":"김유비","10806":"김인혜","10807":"김재이","10808":"김지율","10809":"김진희","10810":"김현비","10811":"문선재","10812":"문현준","10813":"박건민","10814":"박지혜","10815":"손지은","10816":"손태준","10817":"신지우","10818":"이소윤","10819":"이은서","10820":"이일찬","10821":"이하랑","10822":"임진서","10823":"전예원","10824":"정선우","10825":"차명원","10826":"최태영","10827":"최현우","10828":"홍율기","10829":"황유주","10830":"황지율","10831":"황해성"};
 var PAL=["#D97B7B","#9B7FD0","#6BB5AA","#4A35C9","#A5D16F","#8DB255","#F07B3A","#4DABF7","#F783AC","#FFD43B"],A="#F07B3A";
 var DEFSUBJ=["공통국어2","공통수학2","공통영어2","한국사2","통합과학2","통합사회2","기술·가정"];
@@ -138,7 +139,11 @@ var hk=function(s){return Math.floor(s/3600)+"시간 "+Math.floor(s%3600/60)+"�
 var hm=function(ms){var d=new Date(ms),h=d.getHours();return (h<12?"오전 ":"오후 ")+(h%12||12)+":"+p2(d.getMinutes())};
 var esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
 var WD="일월화수목금토";
-function newD(){return{v:1,subj:DEFSUBJ.map(function(n,i){return{id:"s"+i,n:n,c:PAL[i]}}),days:{},tasks:{},tsec:{},run:null,groups:[],prof:{nick:"",msg:""},dday:null,nid:1}}
+function newD(){return{v:1,points:0,pointHours:0,theme:"default",font:"default",ownedThemes:["default"],ownedFonts:["default"],subj:DEFSUBJ.map(function(n,i){return{id:"s"+i,n:n,c:PAL[i]}}),days:{},tasks:{},tsec:{},run:null,groups:[],prof:{nick:"",msg:""},dday:null,nid:1}}
+function totalStudySeconds(){var n=0;Object.keys(D.days||{}).forEach(function(k){var o=D.days[k]||{};Object.keys(o).forEach(function(s){n+=Number(o[s])||0})});return n+act()}
+function syncPoints(){if(!D)return;var hours=Math.floor(totalStudySeconds()/3600),prev=Number(D.pointHours)||0;if(hours>prev){D.points=(Number(D.points)||0)+(hours-prev);D.pointHours=hours;save();toast("공부 보상 "+(hours-prev)+"포인트를 받았어요!")}}
+function applyCosmetics(){var themes={default:{bg:"#1b1b1b",fg:"#ececec"},ocean:{bg:"#102b3a",fg:"#e5f6ff"},forest:{bg:"#183126",fg:"#e8f5e9"},sunset:{bg:"#3a2330",fg:"#fff0e8"}};var fonts={default:"'Pretendard'",serif:"Georgia",round:"'Trebuchet MS'",mono:"monospace"};var t=themes[D&&D.theme]||themes.default;document.documentElement.style.setProperty("--user-font",fonts[D&&D.font]||fonts.default);document.body.style.background=t.bg;document.body.style.color=t.fg;var y=document.getElementById("y");if(y)y.style.background=t.bg}
+function buyCosmetic(kind,name,cost){var owned=kind==="theme"?D.ownedThemes:D.ownedFonts;if(owned.indexOf(name)>=0){D[kind]=name;applyCosmetics();save();render();toast("적용했어요");return}if((D.points||0)<cost){toast("포인트가 부족해요");return}D.points-=cost;owned.push(name);D[kind]=name;applyCosmetics();save();render();toast("구매하고 적용했어요")}
 function SB(id){for(var i=0;i<D.subj.length;i++)if(D.subj[i].id===id)return D.subj[i];return{id:id,n:"(삭제된 과목)",c:"#666"}}
 function dayTot(k){var o=D.days[k]||{},t=0,x;for(x in o)t+=o[x];return t}
 function act(){var r=D.run;return r?r.acc+(r.paused?0:(nowMs()-r.since)/1000):0}
@@ -169,8 +174,9 @@ function start(s,task){if(D.run)bank();D.run={s:s,task:task||0,acc:0,since:nowMs
 function pause(){var r=D.run;if(!r)return;if(r.paused){r.rs+=(nowMs()-r.rst)/1000;r.since=nowMs();r.paused=false}else{r.acc+=(nowMs()-r.since)/1000;r.paused=true;r.rc++;r.rst=nowMs()}r.ping=nowMs();persist()}
 function stopRun(){bank();persist()}
 function fixStale(){var r=D.run;if(!r)return;var now=Date.now();
-  if(!r.paused&&now-(r.ping||r.since)>(NA?43200000:10800000)){var lim=r.ping||r.since;r.acc+=Math.max(0,(lim-r.since)/1000);r.paused=true;r.rst=lim;bank();persist()}
-  else if(r.paused&&now-r.rst>10800000){bank();persist()}}
+  // 실행 중인 타이머는 백그라운드에서 돌리지 않고 시작 시각을 기준으로 재접속 시 경과 시간을 계산한다.
+  // 일시정지 상태만 오래 방치되면 종료 처리한다.
+  if(r.paused&&now-r.rst>10800000){bank();persist()}}
 /* ───────── 그룹/랭킹 데이터 ───────── */
 var CLASS={id:"class",name:"우리 반",fx:1,members:Object.keys(ROSTER).filter(function(i){return i!=="10800"})};
 function allG(){return [CLASS].concat(myG)}
@@ -278,7 +284,7 @@ function settings(){var g='background:#1c1c1e;border-radius:14px;margin:0 12px 1
   +'<div style="'+g+'">'+srow("학번 · 이름",me.sid+" "+me.name,"",1)+'</div>'
   +'<div style="'+g+'">'+erow("nick","닉네임",D.prof.nick||me.name)+erow("msg","상태메시지",D.prof.msg||"")+(ed==="dday"?'<div style="padding:12px 16px"><div class="mut" style="margin-bottom:6px">D-Day 이름</div><input id="ddt" class="in" maxlength="10" value="'+esc(dd.t||"")+'" placeholder="예: 기말고사"><div class="mut" style="margin:10px 0 6px">날짜</div><input id="ddd" type="date" class="in" value="'+esc(dd.d||"")+'"><div style="display:flex;gap:8px;margin-top:12px"><button data-a="ddsv" class="btn" style="height:40px">저장</button><button data-a="dddel" class="btn g" style="height:40px">지우기</button></div></div>':srow("D-Day",D.dday&&D.dday.d?ddayTxt():"설정 안 함","ed-dday",1))+'</div>'
   +'<div style="'+g+'">'+srow("과목 편집","","se")+srow("내 기록 초기화","","reset",1)+'</div>'
-  +'<div style="'+g+'">'+srow("앱 버전","열공 타이머 1.0","",1)+'</div><div style="'+g+'"><div data-a="lo" style="padding:15px 16px;cursor:pointer">로그아웃</div></div></div>'}
+  +'<div style="'+g+';padding:14px 16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b>공부 포인트 상점</b><b style="color:#F0B44A">★ '+(D.points||0)+'P</b></div><div class="mut" style="margin-bottom:12px">공부 누적 1시간마다 1포인트를 받아요. 포인트로 배경과 글꼴을 꾸밀 수 있어요.</div><div style="font-size:13px;margin-bottom:7px">배경 테마 · 각 2P</div>'+[['default','기본'],['ocean','바다'],['forest','숲'],['sunset','노을']].map(function(x){return '<button data-a="cos" data-kind="theme" data-name="'+x[0]+'" style="padding:7px 10px;margin:0 6px 7px 0;border-radius:8px;background:'+(D.theme===x[0]?'#F07B3A':'#333')+';color:'+(D.theme===x[0]?'#111':'#eee')+'">'+x[1]+(D.ownedThemes.indexOf(x[0])>=0?' ✓':'')+'</button>'}).join('')+'<div style="font-size:13px;margin:8px 0 7px">글꼴 · 각 2P</div>'+[['default','기본'],['serif','명조'],['round','둥근'],['mono','고정폭']].map(function(x){return '<button data-a="cos" data-kind="font" data-name="'+x[0]+'" style="padding:7px 10px;margin:0 6px 7px 0;border-radius:8px;background:'+(D.font===x[0]?'#F07B3A':'#333')+';color:'+(D.font===x[0]?'#111':'#eee')+'">'+x[1]+(D.ownedFonts.indexOf(x[0])>=0?' ✓':'')+'</button>'}).join('')+'</div><div style="'+g+'">'+srow("앱 버전","열공 타이머 1.0","",1)+'</div>'+ '<div style="'+g+'"><div data-a="lo" style="padding:15px 16px;cursor:pointer">로그아웃</div></div></div>'}
 function render(){if(scr!=="app")return;var wa=anim,ai=$("#ai");if(ai)adv=ai.value;
   var h=tab==="timer"?(D.run&&!lst?focus():list()):tab==="todo"?todo():tab==="cal"?cal():tab==="group"?grp():tab==="rank"?rank():tab==="stats"?stats():settings();
   var yb=$("#yb"),st=yb.scrollTop;yb.innerHTML=h;if(!wa&&st)yb.scrollTop=st;
@@ -287,7 +293,7 @@ function render(){if(scr!=="app")return;var wa=anim,ai=$("#ai");if(ai)adv=ai.val
   var tb=$("#tbar");if(tab==="todo"&&addTo){tb.style.display="flex";tb.innerHTML=tbar()}else tb.style.display="none";
   var f=tab==="todo"&&addTo?"#ai":tab==="group"&&gv==="create"?"#gn":tab==="settings"&&ed&&ed!=="dday"?"#ei":"";if(f)setTimeout(function(){var e=$(f);if(e)e.focus()},0)}
 function paint(){if(!D)return;var ic=D.run&&D.run.paused?I("play",18):I("pause",18),a=$("#pz"),b=$("#sp");if(a)a.innerHTML=ic;if(b)b.innerHTML=ic}
-function tick(){if(scr!=="app"||!D)return;var a=act(),e,r=D.run;
+function tick(){if(scr!=="app"||!D)return;syncPoints();var a=act(),e,r=D.run;
   if(e=$("#tt"))e.textContent=T(tot());
   document.querySelectorAll(".r .tm").forEach(function(x){x.textContent=T(cur(x.dataset.s))});
   document.querySelectorAll(".mt").forEach(function(x){x.textContent=T(tot())});
@@ -350,7 +356,7 @@ async function enter(){showAuth("load");
   var d=await dget("yp-data:"+me.sid);
   if(d===undefined){showAuth("load","불러오지 못했어. 네트워크를 확인하고 다시 시도해줘.");return}
   D=d||newD();var base=newD();Object.keys(base).forEach(function(k){if(D[k]===undefined)D[k]=base[k]});
-  fixStale();if(!d)save();pushPub();
+  fixStale();if(!d)save();if(!Array.isArray(D.ownedThemes))D.ownedThemes=["default"];if(!Array.isArray(D.ownedFonts))D.ownedFonts=["default"];if(!D.theme)D.theme="default";if(!D.font)D.font="default";syncPoints();applyCosmetics();pushPub();
   scr="app";sel=today();cs=today();var n=new Date();cm={y:n.getFullYear(),m:n.getMonth()};tab="timer";tp="timer";lst=0;anim=1;
   $("#auth").style.display="none";$("#app").classList.add("on");buildTabs();$("#mn").innerHTML=menuHTML();render();nsync();if(window.nativePull)window.nativePull()}
 async function doLogin(){var sid=($("#lsid").value||"").trim(),pw=$("#lpw").value;ldr.sid=sid;if(!sid||!pw){aerr="학번과 비밀번호를 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
@@ -508,6 +514,7 @@ $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
   else if(a==="esv")saveEd();
   else if(a==="ddsv"){var dv=$("#ddd").value;D.dday=dv?{t:($("#ddt").value||"").trim(),d:dv}:null;save();ed="";render()}
   else if(a==="dddel"){D.dday=null;save();ed="";render()}
+  else if(a==="cos")buyCosmetic(el.dataset.kind,el.dataset.name,2);
   else if(a==="se")subjDlg();
   else if(a==="sc"){readSe();var s=se[+el.dataset.i],ix2=PAL.indexOf(s.c);s.c=PAL[(ix2+1)%PAL.length];drawSe()}
   else if(a==="sx"){readSe();se.splice(+el.dataset.i,1);drawSe()}
@@ -518,7 +525,7 @@ $("#y").onkeydown=function(e){if(e.key!=="Enter")return;var id=e.target.id;
   if(id==="ai")addTask();else if(id==="gn")mkGroup();else if(id==="gr")renameG();else if(id==="ei")saveEd();
   else if(id==="lsid"||id==="lpw")doLogin();else if(id==="rname"||id==="rsid")doReg1();else if(id==="rpw"||id==="rpw2")doReg2();else if(id==="jc")$("[data-a=jcode]").click()};
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&scr==="app"){fixStale();render();if(window.nativePull)window.nativePull()}});
-window.addEventListener("pagehide",function(){if(D&&dirty)flush()});
+window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused){D.run.ping=Date.now()}save();flush()}});
 setInterval(tick,250);
 setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
 /* ───────── 시작 ───────── */
