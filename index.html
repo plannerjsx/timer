@@ -152,7 +152,7 @@ var $=function(s){return document.querySelector(s)},p2=function(x){return String
 var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null,pwErr="",pwBusy=0;
 var DD={s:"",st:0,du:0,rp:0};
 var ADMIN="10800",SHOP_ADMIN="10805",conf={tabs:{todo:1,cal:1,group:1,rank:1},lock:0,notice:""};
-var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],pointRouletteRestored:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:31000,stock:1}],orders:[],giftRoulette:[{id:"g1000",name:"기프트카드 1,000원",price:50,giftChance:0.1,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:100,giftChance:0.09,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:200,giftChance:0.01,stock:1}],giftPointRewards:[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5},{v:60,p:0}]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
+var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],pointRouletteRestored:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:31000,stock:1}],orders:[],giftRoulette:[{id:"g1000",name:"기프트카드 1,000원",price:50,giftChance:0.1,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:100,giftChance:0.09,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:200,giftChance:0.01,stock:1}],giftPointRewards:[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5},{v:60,p:0}]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,giftWheelRot={},shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
 var sum=function(a,b){return a+b};
 var key=function(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())};
 var today=function(){return key(new Date())};
@@ -350,16 +350,19 @@ var RPAL=['#2f6f5e','#2f5b8a','#7a4f9a','#8a5a2f','#b8862f','#c44f2a','#2f7a8a',
 function rText(vals,total,cost){return vals.length===1?(vals[0]?vals[0]+'P 당첨!':'아쉽지만 꽝이에요'):vals.length+'회 결과 · 획득 '+total.toLocaleString()+'P (사용 '+cost.toLocaleString()+'P)'}
 function rLastText(){return shopLast.customText||rText(shopLast.vals,shopLast.total,shopLast.cost)}
 function rLastChips(){return shopLast.customLabels?shopLast.customLabels.map(function(v){return '<span class="rchip win" style="animation:none">'+esc(v)+'</span>'}).join(''):shopLast.vals.map(function(v){return '<span class="rchip'+(v?' win':'')+'" style="animation:none">'+(v?v+'P':'당첨!')+'</span>'}).join('')}
-function rouletteWheel(rows){var n=rows.length,sa=360/n,cx=110,cy=110,r=100,h='',i;
+function rouletteWheel(rows,key){key=key||"point";var n=rows.length,sa=360/n,cx=110,cy=110,r=100,h='',i,rot=(key==="point"?shopRot:(giftWheelRot[key]||0)),showLast=key==="point";
   function pt(a,rad){var t=a*Math.PI/180;return[(cx+rad*Math.sin(t)).toFixed(2),(cy-rad*Math.cos(t)).toFixed(2)]}
   for(i=0;i<n;i++){var a0=i*sa,a1=(i+1)*sa,p0=pt(a0,r),p1=pt(a1,r),mid=a0+sa/2,v=Number(rows[i].v)||0;
     h+='<path d="M'+cx+','+cy+' L'+p0[0]+','+p0[1]+' A'+r+','+r+' 0 '+(sa>180?1:0)+' 1 '+p1[0]+','+p1[1]+' Z" fill="'+(v?RPAL[i%RPAL.length]:'#3a3a3f')+'" stroke="#1b1b1b" stroke-width="2"/><text x="'+cx+'" y="'+(cy-62)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="16" font-weight="700" transform="rotate('+mid+' '+cx+' '+cy+')">'+(rows[i].label|| (v?v+'P':'당첨!'))+'</text>'}
-  return '<div style="position:relative;width:min(72vw,250px);margin:6px auto 4px"><div class="rptr"></div><svg id="rwheel" viewBox="0 0 220 220" style="width:100%;display:block;transform:rotate('+shopRot+'deg);filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))" role="img" aria-label="룰렛 판">'+h+'<circle cx="110" cy="110" r="100" fill="none" stroke="#F0B44A" stroke-width="4"/><circle cx="110" cy="110" r="14" fill="#1b1b1b" stroke="#F0B44A" stroke-width="3"/></svg></div>'
-   +'<div id="rstat" style="text-align:center;font-size:16px;font-weight:600;min-height:24px;margin:6px 0 2px">'+(shopLast?rLastText():'')+'</div><div id="rres" style="text-align:center;margin-bottom:6px">'+(shopLast?rLastChips():'')+'</div><div style="text-align:center"><button id="rskip" data-a="shop-skip" class="chip" style="display:none;margin-bottom:8px">건너뛰기</button></div>'}
+  return '<div style="position:relative;width:min(72vw,250px);margin:6px auto 4px"><div class="rptr"></div><svg id="rwheel-'+key+'" viewBox="0 0 220 220" style="width:100%;display:block;transform:rotate('+rot+'deg);filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))" role="img" aria-label="룰렛 판">'+h+'<circle cx="110" cy="110" r="100" fill="none" stroke="#F0B44A" stroke-width="4"/><circle cx="110" cy="110" r="14" fill="#1b1b1b" stroke="#F0B44A" stroke-width="3"/></svg></div>'
+   +'<div id="rstat-'+key+'" style="text-align:center;font-size:16px;font-weight:600;min-height:24px;margin:6px 0 2px">'+(showLast&&shopLast?rLastText():'')+'</div><div id="rres-'+key+'" style="text-align:center;margin-bottom:6px">'+(showLast&&shopLast?rLastChips():'')+'</div><div style="text-align:center"><button id="rskip-'+key+'" data-a="shop-skip" class="chip" style="display:none;margin-bottom:8px">건너뛰기</button></div>'}
 /* 판이 picks[k] 칸(위쪽 화살표 아래)에 멈추도록 돌려야 할 각도를 계산 */
-function rAim(sa,idx,jit){var center=(idx+0.5)*sa+jit*sa*0.7,want=((360-center)%360+360)%360,cur=((shopRot%360)+360)%360;return (want-cur+360)%360}
-function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
-  var wheel=$('#rwheel'),stat=$('#rstat'),res=$('#rres'),skipBtn=$('#rskip');
+function rAim(sa,idx,jit,rotation){var center=(idx+0.5)*sa+jit*sa*0.7,want=((360-center)%360+360)%360,cur=((rotation%360)+360)%360;return (want-cur+360)%360}
+function playRoulette(rows,picks,vals,cost,wheelKey){return new Promise(function(done){
+  wheelKey=wheelKey||"point";
+  var wheel=$('#rwheel-'+wheelKey),stat=$('#rstat-'+wheelKey),res=$('#rres-'+wheelKey),skipBtn=$('#rskip-'+wheelKey);
+  var rotation=wheelKey==="point"?shopRot:(giftWheelRot[wheelKey]||0);
+  function setRotation(v){rotation=v;if(wheelKey==="point")shopRot=v;else giftWheelRot[wheelKey]=v;}
   if(!wheel||!stat||!res){done();return}
   var n=picks.length,sa=360/rows.length,k=0,timer=0,total=vals.reduce(function(a,b){return a+b},0),cancelled=false;
   res.innerHTML='';stat.textContent='';if(skipBtn)skipBtn.style.display='inline-block';
@@ -367,7 +370,7 @@ function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
   function end(){clearTimeout(timer);shopSkipFn=null;if(skipBtn)skipBtn.style.display='none';stat.textContent=(n===1&&rows[picks[0]]&&rows[picks[0]].kind==='gift')?rows[picks[0]].label:rText(vals,total,cost);try{if(navigator.vibrate)navigator.vibrate(n>1?[25,55,20]:[35,45,25])}catch(e){}done()}
   function spinOne(){
     if(k>=n){end();return}
-    var target=picks[k],aim=rAim(sa,target,(Math.random()-.5)*.12);
+    var target=picks[k],aim=rAim(sa,target,(Math.random()-.5)*.12,rotation);
     var mode=Math.random()<.5?'normal':'long';
     var turns=mode==='normal'?4+Math.floor(Math.random()*2):6+Math.floor(Math.random()*2);
     var totalDeg=turns*360+aim;
@@ -382,7 +385,7 @@ function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
     function move(deg,duration,ease,next,label){
       if(cancelled)return;
       wheel.style.transition='transform '+duration+'ms '+ease;
-      shopRot+=deg;wheel.style.transform='rotate('+shopRot+'deg)';
+      setRotation(rotation+deg);wheel.style.transform='rotate('+rotation+'deg)';
       stat.textContent=(n>1?(k+1)+'/'+n+'회 · ':'')+label;
       timer=setTimeout(next,duration+35);
     }
@@ -401,7 +404,7 @@ function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
       },'속도가 조금씩 줄어요...');
     },'일정한 속도로 회전 중...');
   }
-  shopSkipFn=function(){cancelled=true;clearTimeout(timer);var aim=rAim(sa,picks[n-1],0);shopRot+=aim+360;wheel.style.transition='transform 350ms ease-out';wheel.style.transform='rotate('+shopRot+'deg)';for(;k<n;k++)chip(vals[k]);end()};
+  shopSkipFn=function(){cancelled=true;clearTimeout(timer);var aim=rAim(sa,picks[n-1],0,rotation);setRotation(rotation+aim+360);wheel.style.transition='transform 350ms ease-out';wheel.style.transform='rotate('+rotation+'deg)';for(;k<n;k++)chip(vals[k]);end()};
   if(typeof requestAnimationFrame==='function')requestAnimationFrame(function(){requestAnimationFrame(spinOne)});else setTimeout(spinOne,30);
 })}
 async function shopRoulette(n){if(shopBusy)return;n=[1,3,5].indexOf(n)>=0?n:1;shopBusy=1;
@@ -487,18 +490,18 @@ async function shopGiftSpin(id){
     }else u.points+=(Number(won.v)||0);
     return{points:u.points};
   });
-  await playRoulette(rows,[idx],[won.kind==="point"?won.v:0],g.price);
+  await playRoulette(rows,[idx],[won.kind==="point"?won.v:0],g.price,"gift-"+id);
   shopLast={vals:[won.kind==="point"?won.v:0],total:won.kind==="point"?won.v:0,cost:g.price,customText:won.kind==="gift"?won.label+" 당첨!":null,customLabels:won.kind==="gift"?[won.label]:null};
   toast(won.kind==="gift"?"🎉 "+g.name+" 당첨! 담임 확인을 기다려 주세요.":won.v+"P 당첨!");
  }catch(e){toast(e.message||"기프트카드 룰렛 처리 실패")}
  finally{shopSpin=0;shopBusy=0;try{await loadShop()}catch(e){}render()}
 }
 function shopPage(){var c=ensureGiftRoulette(shopCfg||shopDefault()),h='<div class="sc" style="padding:14px 14px 30px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:22px;font-weight:650">포인트 상점</div><div style="color:#F0B44A;font-weight:700">★ '+(D.points||0)+'P</div></div><div class="mut" style="margin-bottom:12px">공부로 모은 포인트를 사용해 룰렛과 뽑기에 참여하세요.</div>';
- h+=shopCard('🎡 포인트 룰렛','<div class="mut" style="margin-bottom:6px">1회 200P · 포인트 룰렛 · 25회 참여 시 <b>룰렛 25회 도전자</b> 칭호</div>'+rouletteWheel(c.roulette)+'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 12px">'+c.roulette.map(function(x){return '<div style="background:#303034;border-radius:9px;padding:8px;text-align:center;font-size:13px">'+(x.v?x.v+'P':'꽝')+'</div>'}).join('')+'</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+[1,3,5].map(function(n){var cost=200*n;return '<button data-a="shop-roulette" data-n="'+n+'" class="btn" style="height:auto;min-height:52px;padding:8px 4px;line-height:1.35" '+((D.points||0)<cost?'disabled':'')+'>'+n+'회 돌리기<br><span style="font-size:12px;font-weight:400">'+cost.toLocaleString()+'P</span></button>'}).join('')+'</div><div class="mut" style="margin-top:8px">누적 참여 '+(D.shopRouletteCount||0)+'회 · '+((D.shopRouletteCount||0)>=25?'칭호 획득 ✓':'칭호까지 '+Math.max(0,25-(D.shopRouletteCount||0))+'회')+'</div>');
+ h+=shopCard('🎡 포인트 룰렛','<div class="mut" style="margin-bottom:6px">1회 200P · 포인트 룰렛 · 25회 참여 시 <b>룰렛 25회 도전자</b> 칭호</div>'+rouletteWheel(c.roulette,'point')+'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 12px">'+c.roulette.map(function(x){return '<div style="background:#303034;border-radius:9px;padding:8px;text-align:center;font-size:13px">'+(x.v?x.v+'P':'꽝')+'</div>'}).join('')+'</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+[1,3,5].map(function(n){var cost=200*n;return '<button data-a="shop-roulette" data-n="'+n+'" class="btn" style="height:auto;min-height:52px;padding:8px 4px;line-height:1.35" '+((D.points||0)<cost?'disabled':'')+'>'+n+'회 돌리기<br><span style="font-size:12px;font-weight:400">'+cost.toLocaleString()+'P</span></button>'}).join('')+'</div><div class="mut" style="margin-top:8px">누적 참여 '+(D.shopRouletteCount||0)+'회 · '+((D.shopRouletteCount||0)>=25?'칭호 획득 ✓':'칭호까지 '+Math.max(0,25-(D.shopRouletteCount||0))+'회')+'</div>');
  h+=shopCard('🍪 간식 랜덤 뽑기','<div class="mut" style="margin-bottom:8px">10회 뽑기 '+c.snack.price.toLocaleString()+'P</div>'+snackReels()+'<button data-a="shop-snack" class="btn" style="width:100%" '+(D.points<c.snack.price?'disabled':'')+'>'+c.snack.price.toLocaleString()+'P로 10번 뽑기</button><div class="mut" style="margin-top:8px">당첨 시 시험끝나고 지급됩니다.</div>');
  c.giftRoulette.forEach(function(g){
   var rows=giftWheelRows(g,c);
-  h+=shopCard("🎁 "+g.name+" 룰렛",'<div class="mut" style="margin-bottom:6px">1회 '+g.price+'P · 남은 수량 '+g.stock+'</div>'+rouletteWheel(rows)+'<button data-a="shop-gift-spin" data-id="'+g.id+'" class="btn" style="width:100%" '+((D.points||0)<g.price||g.stock<1?'disabled':'')+'>룰렛 돌리기 · '+g.price+'P</button>');
+  h+=shopCard("🎁 "+g.name+" 룰렛",'<div class="mut" style="margin-bottom:6px">1회 '+g.price+'P · 남은 수량 '+g.stock+'</div>'+rouletteWheel(rows,'gift-'+g.id)+'<button data-a="shop-gift-spin" data-id="'+g.id+'" class="btn" style="width:100%" '+((D.points||0)<g.price||g.stock<1?'disabled':'')+'>룰렛 돌리기 · '+g.price+'P</button>');
  });
  h+='</div>';return h}
 async function shopTransaction(mutator){if(!USE_FB||!mainDb||!shopDb)throw new Error("Firebase 연결이 필요해요");await flush();var userRef=mainDb.collection(COL).doc("yp-data:"+me.sid),cfgRef=shopDb.collection(COL).doc("yp-shop-config");var result,updatedUser,updatedCfg;await shopDb.runTransaction(async function(tx){var cs=await tx.get(cfgRef);updatedCfg=cs.exists?JSON.parse(cs.data().value||"{}"):shopDefault();});await mainDb.runTransaction(async function(tx){var us=await tx.get(userRef);updatedUser=us.exists?JSON.parse(us.data().value||"{}"):newD();result=mutator(updatedUser,updatedCfg);tx.set(userRef,{value:JSON.stringify(updatedUser),updatedAt:Date.now()});});await cfgRef.set({value:JSON.stringify(updatedCfg),updatedAt:Date.now()},{merge:true});D.points=result.points;D.shopRouletteCount=result.count===undefined?D.shopRouletteCount:result.count;D.shopTitle=result.title||D.shopTitle;saveLocalAfterShop();return result}
