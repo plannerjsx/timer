@@ -149,7 +149,7 @@ async function dlist(prefix){
 }
 /* ───────── 상태 ───────── */
 var $=function(s){return document.querySelector(s)},p2=function(x){return String(x).padStart(2,"0")};
-var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null;
+var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null,pwErr="",pwBusy=0;
 var DD={s:"",st:0,du:0,rp:0};
 var ADMIN="10800",SHOP_ADMIN="10805",conf={tabs:{todo:1,cal:1,group:1,rank:1},lock:0,notice:""};
 var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],snack:{price:4000,win:20},gifts:[{id:"g1000",name:"구글 기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"구글 기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"구글 기프트카드 10,000원",price:31000,stock:1}],orders:[]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
@@ -303,10 +303,47 @@ function srow(l,v,k,last){return '<div data-a="'+(k||"soon")+'" style="display:f
 function erow(k,l,v){return ed===k?'<div style="display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:.5px solid #2c2c2e"><span style="flex:none">'+l+'</span><input id="ei" value="'+esc(v)+'" maxlength="20" class="in" style="height:36px;text-align:right"><button data-a="esv" class="chip" style="background:'+A+';color:#111;padding:6px 10px;flex:none">저장</button></div>':srow(l,v,"ed-"+k)}
 function settings(){var g='background:#1c1c1e;border-radius:14px;margin:0 12px 14px;overflow:hidden',dd=D.dday||{};
   return '<div class="'+an()+'" style="background:#000;min-height:100%;padding-bottom:30px"><div style="display:flex;align-items:center;justify-content:center;position:relative;padding:12px 0 16px"><button data-a="back" class="ib" style="position:absolute;left:8px" aria-label="뒤로">'+I("cl")+'</button><span style="font-size:17px">설정</span></div>'
-  +'<div style="'+g+'">'+srow("학번 · 이름",me.sid+" "+me.name,"",1)+'</div>'
+  +'<div style="'+g+'">'+srow("학번 · 이름",me.sid+" "+me.name,"pwpage",1)+'</div>'
   +'<div style="'+g+'">'+erow("nick","닉네임",D.prof.nick||me.name)+erow("msg","상태메시지",D.prof.msg||"")+(ed==="dday"?'<div style="padding:12px 16px"><div class="mut" style="margin-bottom:6px">D-Day 이름</div><input id="ddt" class="in" maxlength="10" value="'+esc(dd.t||"")+'" placeholder="예: 기말고사"><div class="mut" style="margin:10px 0 6px">날짜</div><input id="ddd" type="date" class="in" value="'+esc(dd.d||"")+'"><div style="display:flex;gap:8px;margin-top:12px"><button data-a="ddsv" class="btn" style="height:40px">저장</button><button data-a="dddel" class="btn g" style="height:40px">지우기</button></div></div>':srow("D-Day",D.dday&&D.dday.d?ddayTxt():"설정 안 함","ed-dday",1))+'</div>'
   +'<div style="'+g+'">'+srow("과목 편집","","se")+srow("내 기록 초기화","","reset",1)+'</div>'
   +'<div style="'+g+';padding:14px 16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b>공부 포인트 상점</b><b style="color:#F0B44A">★ '+(D.points||0)+'P</b></div><div class="mut" style="margin-bottom:12px">공부 누적 30분마다 100포인트를 받아요. 포인트로 배경과 글꼴을 꾸밀 수 있어요.</div><div style="font-size:13px;margin-bottom:7px">배경 테마 · 각 2P</div>'+[['default','기본'],['ocean','바다'],['forest','숲'],['sunset','노을']].map(function(x){return '<button data-a="cos" data-kind="theme" data-name="'+x[0]+'" style="padding:7px 10px;margin:0 6px 7px 0;border-radius:8px;background:'+(D.theme===x[0]?'#F07B3A':'#333')+';color:'+(D.theme===x[0]?'#111':'#eee')+'">'+x[1]+(D.ownedThemes.indexOf(x[0])>=0?' ✓':'')+'</button>'}).join('')+'<div style="font-size:13px;margin:8px 0 7px">글꼴 · 각 2P</div>'+[['default','기본'],['serif','명조'],['round','둥근'],['mono','고정폭']].map(function(x){return '<button data-a="cos" data-kind="font" data-name="'+x[0]+'" style="padding:7px 10px;margin:0 6px 7px 0;border-radius:8px;background:'+(D.font===x[0]?'#F07B3A':'#333')+';color:'+(D.font===x[0]?'#111':'#eee')+'">'+x[1]+(D.ownedFonts.indexOf(x[0])>=0?' ✓':'')+'</button>'}).join('')+'</div><div style="'+g+'">'+srow("앱 버전","열공 타이머 1.0","",1)+'</div>'+ '<div style="'+g+'"><div data-a="lo" style="padding:15px 16px;cursor:pointer">로그아웃</div></div></div>'}
+
+function passwordChangePage(){
+  return '<div style="background:#000;min-height:100%;padding:10px 14px 30px">'
+  +'<div style="display:flex;align-items:center;justify-content:center;position:relative;padding:8px 0 20px"><button data-a="pwback" class="ib" style="position:absolute;left:0" aria-label="뒤로">'+I("cl")+'</button><span style="font-size:18px">비밀번호 변경</span></div>'
+  +'<div class="card"><div style="font-size:14px;margin-bottom:6px">계정 정보</div><div class="mut">'+esc(me.sid)+' · '+esc(me.name)+'</div></div>'
+  +'<div class="card"><div class="mut" style="margin-bottom:6px">현재 비밀번호</div><input id="pw-current" class="in" type="password" autocomplete="current-password" placeholder="현재 비밀번호">'
+  +'<div class="mut" style="margin:14px 0 6px">새 비밀번호</div><input id="pw-new" class="in" type="password" autocomplete="new-password" placeholder="6자 이상">'
+  +'<div class="mut" style="margin:14px 0 6px">새 비밀번호 확인</div><input id="pw-confirm" class="in" type="password" autocomplete="new-password" placeholder="새 비밀번호 다시 입력">'
+  +'<div class="err">'+esc(pwErr)+'</div><button data-a="pw-save" class="btn" '+(pwBusy?'disabled':'')+'>'+(pwBusy?'변경 중...':'비밀번호 변경')+'</button>'
+  +'<div class="mut" style="margin-top:12px">본인 확인을 위해 현재 비밀번호를 입력해야 해요. 새 비밀번호는 6자 이상이어야 해요.</div></div></div>';
+}
+async function changeMyPassword(){
+  if(pwBusy)return;
+  var current=($("#pw-current")||{}).value||"",next=($("#pw-new")||{}).value||"",confirm=($("#pw-confirm")||{}).value||"";
+  if(!current||!next||!confirm){pwErr="모든 항목을 입력해 주세요.";render();return}
+  if(next.length<6){pwErr="새 비밀번호는 6자 이상이어야 해요.";render();return}
+  if(next!==confirm){pwErr="새 비밀번호가 서로 일치하지 않아요.";render();return}
+  if(current===next){pwErr="현재 비밀번호와 다른 비밀번호를 입력해 주세요.";render();return}
+  var user=fbAuth&&fbAuth.currentUser;
+  if(!USE_FB||!user){pwErr="로그인 정보를 확인할 수 없어요. 다시 로그인해 주세요.";render();return}
+  pwBusy=1;pwErr="";render();
+  try{
+    var credential=firebase.auth.EmailAuthProvider.credential(user.email,current);
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(next);
+    pwBusy=0;pwErr="";tab="settings";render();toast("비밀번호를 변경했어요.");
+  }catch(e){
+    pwBusy=0;
+    var c=e&&e.code||"";
+    if(c.indexOf("wrong-password")>=0||c.indexOf("invalid-credential")>=0)pwErr="현재 비밀번호가 올바르지 않아요.";
+    else if(c.indexOf("weak-password")>=0)pwErr="새 비밀번호는 6자 이상이어야 해요.";
+    else if(c.indexOf("requires-recent-login")>=0)pwErr="보안을 위해 로그아웃한 뒤 다시 로그인하고 시도해 주세요.";
+    else pwErr="비밀번호 변경에 실패했어요. 네트워크와 Firebase 설정을 확인해 주세요.";
+    render();
+  }
+}
+
 function shopDefault(){return JSON.parse(JSON.stringify(SHOP_DEFAULT))}
 /* ───────── 룰렛 · 간식 뽑기 애니메이션 ───────── */
 var RPAL=['#2f6f5e','#2f5b8a','#7a4f9a','#8a5a2f','#b8862f','#c44f2a','#2f7a8a','#6a7a2f'];
@@ -402,7 +439,7 @@ async function enterTeacherOrders(){scr="teacherorders";$("#auth").style.display
 function teacherOrdersRender(){if(scr!=="teacherorders")return;$("#adm").innerHTML='<div class="yt"><span style="font-weight:600">10800 · 기프트카드 알림</span><button data-a="to-refresh" class="chip" style="margin-left:auto">새로고침</button><button data-a="m-lo" class="chip">로그아웃</button></div><div class="yb">'+teacherShopOrders()+'</div>'}
 
 function render(){if(scr!=="app")return;if(shopSpin&&tab==="shop")return;var wa=anim,ai=$("#ai");if(ai)adv=ai.value;
-  var h=tab==="timer"?(D.run&&!lst?focus():list()):tab==="todo"?todo():tab==="cal"?cal():tab==="group"?grp():tab==="rank"?rank():tab==="stats"?stats():tab==="shop"?shopPage():tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN?shopAdminPage():settings();
+  var h=tab==="timer"?(D.run&&!lst?focus():list()):tab==="todo"?todo():tab==="cal"?cal():tab==="group"?grp():tab==="rank"?rank():tab==="stats"?stats():tab==="shop"?shopPage():tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN?shopAdminPage():tab==="pwchange"?passwordChangePage():settings();
   var yb=$("#yb"),st=yb.scrollTop;yb.innerHTML=h;if(!wa&&st)yb.scrollTop=st;
   document.querySelectorAll("#yt button.t").forEach(function(b){b.classList.toggle("on",b.dataset.t===tab)});paint();tick();
   var fm=tab==="group"&&(gv==="list"||gv==="browse"),fb=$("#fab");fb.style.display=fm?"flex":"none";if(fm)fb.innerHTML=gv==="list"?I("uplus",22):'<span style="color:'+A+'">'+I("plus",24)+'</span>';
@@ -587,6 +624,9 @@ $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
   else if(a==="menu")$("#mn").classList.toggle("on");
   else if(a==="go"){$("#mn").classList.remove("on");tab=el.dataset.t;anim=1;if(tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN)loadShop().then(render);else render();if(tab==="rank")loadG(false,0)}
   else if(a==="back"){tab=tp;anim=1;render()}
+  else if(a==="pwpage"){pwErr="";pwBusy=0;tab="pwchange";anim=1;render()}
+  else if(a==="pwback"){tab="settings";anim=1;render()}
+  else if(a==="pw-save")changeMyPassword();
   else if(a==="soon")toast("준비 중이에요");
   else if(a==="lo")dlg("로그아웃","로그아웃할까요?",logout);
   else if(a==="dd"){tab="settings";ed="dday";anim=1;render()}
@@ -643,7 +683,7 @@ $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
   else if(a==="reset")dlg("내 기록 초기화","공부 시간과 할 일을 모두 지울까요?<br>되돌릴 수 없어요.",resetMine)};
 $("#y").onkeydown=function(e){if(e.key!=="Enter")return;var id=e.target.id;
   if(id==="ai")addTask();else if(id==="gn")mkGroup();else if(id==="gr")renameG();else if(id==="ei")saveEd();
-  else if(id==="lsid"||id==="lpw")doLogin();else if(id==="rname"||id==="rsid")doReg1();else if(id==="rpw"||id==="rpw2")doReg2();else if(id==="jc")$("[data-a=jcode]").click()};
+  else if(id==="lsid"||id==="lpw")doLogin();else if(id==="rname"||id==="rsid")doReg1();else if(id==="rpw"||id==="rpw2")doReg2();else if(id==="pw-current"||id==="pw-new"||id==="pw-confirm")changeMyPassword();else if(id==="jc")$("[data-a=jcode]").click()};
 document.addEventListener("visibilitychange",function(){if(!document.hidden&&scr==="app"){fixStale();render();if(window.nativePull)window.nativePull()}});
 window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused){D.run.ping=Date.now()}save();flush()}});
 setInterval(tick,250);
