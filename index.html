@@ -361,20 +361,40 @@ function rAim(sa,idx,jit){var center=(idx+0.5)*sa+jit*sa*0.7,want=((360-center)%
 function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
   var wheel=$('#rwheel'),stat=$('#rstat'),res=$('#rres'),skipBtn=$('#rskip');
   if(!wheel||!stat||!res){done();return}
-  var n=picks.length,sa=360/rows.length,k=0,timer=0,dur=Math.round((n===1?3800:n===3?2100:1500)*rspeed),gap=Math.round((n===1?0:380)*rspeed),total=vals.reduce(function(a,b){return a+b},0);
+  var n=picks.length,sa=360/rows.length,k=0,timer=0,total=vals.reduce(function(a,b){return a+b},0),cancelled=false;
   res.innerHTML='';stat.textContent='';if(skipBtn)skipBtn.style.display='inline-block';
   function chip(v){var s=document.createElement('span');s.className='rchip'+(v?' win':'');s.textContent=v?v+'P':'꽝';res.appendChild(s)}
-  function end(){clearTimeout(timer);shopSkipFn=null;if(skipBtn)skipBtn.style.display='none';stat.textContent=rText(vals,total,cost);try{if(navigator.vibrate)navigator.vibrate(n>1?[30,40,30]:30)}catch(e){}done()}
-  function step(){
+  function end(){clearTimeout(timer);shopSkipFn=null;if(skipBtn)skipBtn.style.display='none';stat.textContent=rText(vals,total,cost);try{if(navigator.vibrate)navigator.vibrate(n>1?[25,55,20]:[35,45,25])}catch(e){}done()}
+  function randomPause(){return Math.random()<.38?Math.floor(180+Math.random()*950):0}
+  function spinOne(){
     if(k>=n){end();return}
-    shopRot+=360*(n===1?6:4)+rAim(sa,picks[k],Math.random()-0.5);
-    wheel.style.transition='transform '+dur+'ms cubic-bezier(.1,.7,.15,1)';
-    wheel.style.transform='rotate('+shopRot+'deg)';
-    stat.textContent=(n>1?(k+1)+'/'+n+'회 ':'')+'돌리는 중...';
-    timer=setTimeout(function(){chip(vals[k]);stat.textContent=vals[k]?vals[k]+'P 당첨!':'꽝';k++;timer=setTimeout(step,gap)},dur+80);
+    var target=picks[k],startAngle=shopRot,loops=2+Math.floor(Math.random()*5),segments=5+Math.floor(Math.random()*7),elapsed=0;
+    var offsets=[],sumDeg=0;
+    for(var q=0;q<segments;q++){var d=(360/segments)*(0.45+Math.random()*1.55);offsets.push(d);sumDeg+=d}
+    var correction=360*loops-sumDeg;offsets[offsets.length-1]+=correction;
+    function moveSegment(q){
+      if(cancelled)return;
+      if(q>=segments){
+        var aim=rAim(sa,target,(Math.random()-.5)*.18);
+        var finalDeg=aim+Math.floor(Math.random()*2)*360;
+        var finalDuration=650+Math.floor(Math.random()*2100);
+        wheel.style.transition='transform '+finalDuration+'ms cubic-bezier(.08,.78,.12,1)';
+        shopRot+=finalDeg;wheel.style.transform='rotate('+shopRot+'deg)';
+        stat.textContent=(n>1?(k+1)+'/'+n+'회 ':'')+'멈출 듯 말 듯...';
+        timer=setTimeout(function(){chip(vals[k]);stat.textContent=vals[k]?vals[k]+'P 당첨!':'꽝';k++;timer=setTimeout(spinOne,randomPause()+120)},finalDuration+80);
+        return;
+      }
+      var speed=Math.random(),duration=speed<.25?90+Math.random()*180:speed<.55?280+Math.random()*650:700+Math.random()*1250;
+      var ease=speed<.25?'cubic-bezier(.2,.05,.8,.2)':speed<.55?'cubic-bezier(.1,.9,.2,1)':'cubic-bezier(.35,.05,.65,.95)';
+      wheel.style.transition='transform '+Math.round(duration)+'ms '+ease;
+      shopRot+=offsets[q]*(Math.random()<.16?0.35:1);wheel.style.transform='rotate('+shopRot+'deg)';
+      stat.textContent=(n>1?(k+1)+'/'+n+'회 ':'')+(Math.random()<.5?'속도가 바뀌고 있어요...':'곧 멈출 것 같아요...');
+      var pause=randomPause();timer=setTimeout(function(){if(pause){wheel.style.transition='none';timer=setTimeout(function(){moveSegment(q+1)},pause)}else moveSegment(q+1)},duration+20);
+    }
+    moveSegment(0);
   }
-  shopSkipFn=function(){clearTimeout(timer);for(;k<n;k++)chip(vals[k]);wheel.style.transition='none';shopRot+=rAim(sa,picks[n-1],0)+360;wheel.style.transform='rotate('+shopRot+'deg)';end()};
-  requestAnimationFrame(function(){requestAnimationFrame(step)});
+  shopSkipFn=function(){cancelled=true;clearTimeout(timer);var aim=rAim(sa,picks[n-1],0);shopRot+=aim+360;wheel.style.transition='transform 180ms ease-out';wheel.style.transform='rotate('+shopRot+'deg)';for(;k<n;k++)chip(vals[k]);end()};
+  requestAnimationFrame(function(){requestAnimationFrame(spinOne)});
 })}
 async function shopRoulette(n){if(shopBusy)return;n=[1,3,5].indexOf(n)>=0?n:1;shopBusy=1;
   try{var cfg=await loadShop(),cost=200*n,picks=[],vals=[],total=0,i,j;
