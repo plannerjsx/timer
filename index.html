@@ -152,7 +152,7 @@ var $=function(s){return document.querySelector(s)},p2=function(x){return String
 var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null,pwErr="",pwBusy=0;
 var DD={s:"",st:0,du:0,rp:0};
 var ADMIN="10800",SHOP_ADMIN="10805",conf={tabs:{todo:1,cal:1,group:1,rank:1},lock:0,notice:""};
-var SHOP_DEFAULT={roulette:[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5}],pointRouletteV2:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"구글 기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"구글 기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"구글 기프트카드 10,000원",price:31000,stock:1}],orders:[]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
+var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],pointRouletteRestored:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"구글 기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"구글 기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"구글 기프트카드 10,000원",price:31000,stock:1}],orders:[]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
 var sum=function(a,b){return a+b};
 var key=function(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())};
 var today=function(){return key(new Date())};
@@ -365,39 +365,47 @@ function playRoulette(rows,picks,vals,cost){return new Promise(function(done){
   res.innerHTML='';stat.textContent='';if(skipBtn)skipBtn.style.display='inline-block';
   function chip(v){var s=document.createElement('span');s.className='rchip'+(v?' win':'');s.textContent=v?v+'P':'꽝';res.appendChild(s)}
   function end(){clearTimeout(timer);shopSkipFn=null;if(skipBtn)skipBtn.style.display='none';stat.textContent=rText(vals,total,cost);try{if(navigator.vibrate)navigator.vibrate(n>1?[25,55,20]:[35,45,25])}catch(e){}done()}
-  function randomPause(){return Math.random()<.38?Math.floor(180+Math.random()*950):0}
   function spinOne(){
     if(k>=n){end();return}
-    var target=picks[k],startAngle=shopRot,loops=2+Math.floor(Math.random()*5),segments=5+Math.floor(Math.random()*7),elapsed=0;
-    var offsets=[],sumDeg=0;
-    for(var q=0;q<segments;q++){var d=(360/segments)*(0.45+Math.random()*1.55);offsets.push(d);sumDeg+=d}
-    var correction=360*loops-sumDeg;offsets[offsets.length-1]+=correction;
-    function moveSegment(q){
+    var target=picks[k],aim=rAim(sa,target,(Math.random()-.5)*.12);
+    var mode=Math.random()<.5?'normal':'long';
+    var turns=mode==='normal'?4+Math.floor(Math.random()*2):6+Math.floor(Math.random()*2);
+    var totalDeg=turns*360+aim;
+    var p1=totalDeg*(mode==='normal'?.72:.50);
+    var p2=totalDeg*(mode==='normal'?.28:.18);
+    var p3=mode==='long'?totalDeg*.17:0;
+    var p4=mode==='long'?totalDeg*.15:0;
+    var d1=2200+Math.floor(Math.random()*350);
+    var d2=mode==='normal'?1300+Math.floor(Math.random()*300):1050+Math.floor(Math.random()*250);
+    var d3=mode==='long'?950+Math.floor(Math.random()*300):0;
+    var d4=mode==='long'?1450+Math.floor(Math.random()*400):0;
+    function move(deg,duration,ease,next,label){
       if(cancelled)return;
-      if(q>=segments){
-        var aim=rAim(sa,target,(Math.random()-.5)*.18);
-        var finalDeg=aim+Math.floor(Math.random()*2)*360;
-        var finalDuration=650+Math.floor(Math.random()*2100);
-        wheel.style.transition='transform '+finalDuration+'ms cubic-bezier(.08,.78,.12,1)';
-        shopRot+=finalDeg;wheel.style.transform='rotate('+shopRot+'deg)';
-        stat.textContent=(n>1?(k+1)+'/'+n+'회 ':'')+'멈출 듯 말 듯...';
-        timer=setTimeout(function(){chip(vals[k]);stat.textContent=vals[k]?vals[k]+'P 당첨!':'꽝';k++;timer=setTimeout(spinOne,randomPause()+120)},finalDuration+80);
-        return;
-      }
-      var speed=Math.random(),duration=speed<.25?90+Math.random()*180:speed<.55?280+Math.random()*650:700+Math.random()*1250;
-      var ease=speed<.25?'cubic-bezier(.2,.05,.8,.2)':speed<.55?'cubic-bezier(.1,.9,.2,1)':'cubic-bezier(.35,.05,.65,.95)';
-      wheel.style.transition='transform '+Math.round(duration)+'ms '+ease;
-      shopRot+=offsets[q]*(Math.random()<.16?0.35:1);wheel.style.transform='rotate('+shopRot+'deg)';
-      stat.textContent=(n>1?(k+1)+'/'+n+'회 ':'')+(Math.random()<.5?'속도가 바뀌고 있어요...':'곧 멈출 것 같아요...');
-      var pause=randomPause();timer=setTimeout(function(){if(pause){wheel.style.transition='none';timer=setTimeout(function(){moveSegment(q+1)},pause)}else moveSegment(q+1)},duration+20);
+      wheel.style.transition='transform '+duration+'ms '+ease;
+      shopRot+=deg;wheel.style.transform='rotate('+shopRot+'deg)';
+      stat.textContent=(n>1?(k+1)+'/'+n+'회 · ':'')+label;
+      timer=setTimeout(next,duration+35);
     }
-    moveSegment(0);
+    function finish(){
+      if(cancelled)return;
+      chip(vals[k]);stat.textContent=vals[k]?vals[k]+'P 당첨!':'꽝';
+      k++;timer=setTimeout(spinOne,450+Math.floor(Math.random()*500));
+    }
+    move(p1,d1,'linear',function(){
+      move(p2,d2,'cubic-bezier(.25,.1,.35,1)',function(){
+        if(mode==='long'){
+          move(p3,d3,'cubic-bezier(.35,.05,.55,.75)',function(){
+            move(p4,d4,'cubic-bezier(.08,.72,.16,1)',finish,'천천히 멈추는 중...');
+          },'조금 더 돌아가요...');
+        }else finish();
+      },'속도가 조금씩 줄어요...');
+    },'일정한 속도로 회전 중...');
   }
-  shopSkipFn=function(){cancelled=true;clearTimeout(timer);var aim=rAim(sa,picks[n-1],0);shopRot+=aim+360;wheel.style.transition='transform 180ms ease-out';wheel.style.transform='rotate('+shopRot+'deg)';for(;k<n;k++)chip(vals[k]);end()};
-  if(typeof requestAnimationFrame==="function")requestAnimationFrame(function(){requestAnimationFrame(spinOne)});else setTimeout(spinOne,30);
+  shopSkipFn=function(){cancelled=true;clearTimeout(timer);var aim=rAim(sa,picks[n-1],0);shopRot+=aim+360;wheel.style.transition='transform 350ms ease-out';wheel.style.transform='rotate('+shopRot+'deg)';for(;k<n;k++)chip(vals[k]);end()};
+  if(typeof requestAnimationFrame==='function')requestAnimationFrame(function(){requestAnimationFrame(spinOne)});else setTimeout(spinOne,30);
 })}
-async function shopRoulette(n){if(shopBusy)return;n=1;shopBusy=1;
-  try{var cfg=await loadShop(),cost=50,picks=[],vals=[],total=0,i,j;
+async function shopRoulette(n){if(shopBusy)return;n=[1,3,5].indexOf(n)>=0?n:1;shopBusy=1;
+  try{var cfg=await loadShop(),cost=200*n,picks=[],vals=[],total=0,i,j;
     if((D.points||0)<cost)throw Error('포인트가 부족해요');
     for(i=0;i<n;i++){var r=Math.random()*100,acc=0,idx=cfg.roulette.length-1;for(j=0;j<cfg.roulette.length;j++){acc+=Number(cfg.roulette[j].p);if(r<acc){idx=j;break}}picks.push(idx);vals.push(Number(cfg.roulette[idx].v)||0);total+=vals[i]}
     shopSpin=1;shopLast=null;
@@ -441,11 +449,11 @@ async function shopSnack(){if(shopBusy)return;shopBusy=1;
   }catch(e){toast(e.message||'처리 실패')}
   finally{shopSpin=0;shopBusy=0;try{await loadShop()}catch(e){}render()}}
 
-async function loadShop(){try{var snap=await shopDb.collection(COL).doc("yp-shop-config").get();var c=snap.exists?JSON.parse(snap.data().value||"{}"):null;shopCfg=c&&c.roulette&&c.gifts?c:shopDefault();if(!shopCfg.pointRouletteV2){shopCfg.roulette=[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5}];shopCfg.pointRouletteV2=true;await shopDb.collection(COL).doc("yp-shop-config").set({value:JSON.stringify(shopCfg),updatedAt:Date.now()},{merge:true});}return shopCfg}catch(e){console.error("상점 DB 읽기 실패",e);shopCfg=shopDefault();throw new Error("상점 데이터베이스에 연결할 수 없어요. Firebase 보안 규칙을 확인해 주세요.")}}
+async function loadShop(){try{var snap=await shopDb.collection(COL).doc("yp-shop-config").get();var c=snap.exists?JSON.parse(snap.data().value||"{}"):null;shopCfg=c&&c.roulette&&c.gifts?c:shopDefault();if(!shopCfg.pointRouletteRestored){shopCfg.roulette=[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}];shopCfg.pointRouletteRestored=true;await shopDb.collection(COL).doc("yp-shop-config").set({value:JSON.stringify(shopCfg),updatedAt:Date.now()},{merge:true});}return shopCfg}catch(e){console.error("상점 DB 읽기 실패",e);shopCfg=shopDefault();throw new Error("상점 데이터베이스에 연결할 수 없어요. Firebase 보안 규칙을 확인해 주세요.")}}
 async function shopSave(){try{await shopDb.collection(COL).doc("yp-shop-config").set({value:JSON.stringify(shopCfg),updatedAt:Date.now()},{merge:true});return true}catch(e){console.error("상점 DB 저장 실패",e);toast("상점 설정 저장 실패: Firebase 권한을 확인해 주세요.");return false}}
 function shopCard(title,body){return '<div style="background:#202023;border:1px solid #303034;border-radius:16px;padding:14px;margin:0 0 12px"><div style="font-size:17px;font-weight:600;margin-bottom:9px">'+title+'</div>'+body+'</div>'}
 function shopPage(){var c=shopCfg||shopDefault(),h='<div class="sc" style="padding:14px 14px 30px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:22px;font-weight:650">포인트 상점</div><div style="color:#F0B44A;font-weight:700">★ '+(D.points||0)+'P</div></div><div class="mut" style="margin-bottom:12px">공부로 모은 포인트를 사용해요. 확률과 당첨 결과를 확인하고 참여하세요.</div>';
- h+=shopCard('🎡 포인트 룰렛','<div class="mut" style="margin-bottom:6px">1회 50P · 꽝 없이 포인트 당첨 · 25회 참여 시 <b>룰렛 25회 도전자</b> 칭호</div>'+rouletteWheel(c.roulette)+'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:8px 0 12px">'+c.roulette.map(function(x){return '<div style="background:#303034;border-radius:9px;padding:8px 3px;text-align:center;font-size:12px">'+x.v+'P<div class="mut">'+x.p+'%</div></div>'}).join('')+'</div><button data-a="shop-roulette" data-n="1" class="btn" style="width:100%;height:52px" '+((D.points||0)<50?'disabled':'')+'>50P로 룰렛 돌리기</button><div class="mut" style="margin-top:8px">누적 참여 '+(D.shopRouletteCount||0)+'회 · '+((D.shopRouletteCount||0)>=25?'칭호 획득 ✓':'칭호까지 '+Math.max(0,25-(D.shopRouletteCount||0))+'회')+'</div>');
+ h+=shopCard('🎡 포인트 룰렛','<div class="mut" style="margin-bottom:6px">1회 200P · 포인트 룰렛 · 25회 참여 시 <b>룰렛 25회 도전자</b> 칭호</div>'+rouletteWheel(c.roulette)+'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0 12px">'+c.roulette.map(function(x){return '<div style="background:#303034;border-radius:9px;padding:8px;text-align:center;font-size:13px">'+(x.v?x.v+'P':'꽝')+'<div class="mut">'+x.p+'%</div></div>'}).join('')+'</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+[1,3,5].map(function(n){var cost=200*n;return '<button data-a="shop-roulette" data-n="'+n+'" class="btn" style="height:auto;min-height:52px;padding:8px 4px;line-height:1.35" '+((D.points||0)<cost?'disabled':'')+'>'+n+'회 돌리기<br><span style="font-size:12px;font-weight:400">'+cost.toLocaleString()+'P</span></button>'}).join('')+'</div><div class="mut" style="margin-top:8px">누적 참여 '+(D.shopRouletteCount||0)+'회 · '+((D.shopRouletteCount||0)>=25?'칭호 획득 ✓':'칭호까지 '+Math.max(0,25-(D.shopRouletteCount||0))+'회')+'</div>');
  h+=shopCard('🍪 간식 랜덤 뽑기','<div class="mut" style="margin-bottom:8px">10회 뽑기 '+c.snack.price.toLocaleString()+'P · 꽝 80% · 간식 당첨 20%</div>'+snackReels()+'<button data-a="shop-snack" class="btn" style="width:100%" '+(D.points<c.snack.price?'disabled':'')+'>'+c.snack.price.toLocaleString()+'P로 10번 뽑기</button><div class="mut" style="margin-top:8px">당첨 시 시험끝나고 지급됩니다.</div>');
  h+=shopCard('🎁 구글 기프트카드 교환',c.gifts.map(function(g){return '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #333"><div style="flex:1"><div>'+g.name+'</div><div class="mut">'+g.price.toLocaleString()+'P · '+(g.stock>0?'선착순 남음':'품절')+'</div></div><button data-a="shop-gift" data-id="'+g.id+'" class="chip" '+(D.points<g.price||g.stock<1?'disabled':'')+'>교환</button></div>'}).join('')+'<div class="mut" style="margin-top:8px">각 상품 선착순 1명, 1개 한정이에요. 실제 카드 전달은 시험끝나고 지급됩니다.</div>');
  h+='</div>';return h}
