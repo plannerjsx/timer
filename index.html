@@ -133,10 +133,10 @@ function llist(prefix){var out=[];try{for(var i=0;i<localStorage.length;i++){var
 async function fx(url,opt,ms){var c=new AbortController(),t=setTimeout(function(){c.abort()},ms||10000),o=Object.assign({},opt||{});o.headers=Object.assign({},o.headers||{});if(USE_FB&&url.indexOf("firestore.googleapis.com/")>=0&&fbAuth.currentUser){try{o.headers.Authorization="Bearer "+await fbAuth.currentUser.getIdToken()}catch(e){}}try{return await fetch(url,Object.assign(o,{signal:c.signal}))}finally{clearTimeout(t)}}
 function dpath(id){return BASE+"/"+COL+"/"+encodeURIComponent(id)+"?key="+KEY}
 function parseDoc(d){try{return JSON.parse(d.fields.value.stringValue)}catch(e){return null}}
-async function dget(id){if(!USE_FB)return lget(id);try{var r=await fx(dpath(id));if(r.status===404)return null;if(!r.ok)throw 0;return parseDoc(await r.json())}catch(e){return undefined}}
-async function dset(id,o){if(!USE_FB)return lset(id,o);try{var fields={value:{stringValue:JSON.stringify(o)},updatedAt:{integerValue:String(Date.now())}};if(id.indexOf("account:")===0&&fbAuth.currentUser)fields.ownerUid={stringValue:fbAuth.currentUser.uid};var r=await fx(dpath(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:fields})});return r.ok}catch(e){return false}}
-async function ddel(id){if(!USE_FB)return ldel(id);try{var r=await fx(dpath(id),{method:"DELETE"});return r.ok||r.status===404}catch(e){return false}}
-async function dlist(prefix){
+async function dgetMain(id){if(!USE_FB)return lget(id);try{var r=await fx(dpath(id));if(r.status===404)return null;if(!r.ok)throw 0;return parseDoc(await r.json())}catch(e){return undefined}}
+async function dsetMain(id,o){if(!USE_FB)return lset(id,o);try{var fields={value:{stringValue:JSON.stringify(o)},updatedAt:{integerValue:String(Date.now())}};if(id.indexOf("account:")===0&&fbAuth.currentUser)fields.ownerUid={stringValue:fbAuth.currentUser.uid};var r=await fx(dpath(id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:fields})});return r.ok}catch(e){return false}}
+async function ddelMain(id){if(!USE_FB)return ldel(id);try{var r=await fx(dpath(id),{method:"DELETE"});return r.ok||r.status===404}catch(e){return false}}
+async function dlistMain(prefix){
   if(!USE_FB)return llist(prefix);
   var hi=prefix.slice(0,-1)+String.fromCharCode(prefix.charCodeAt(prefix.length-1)+1),out=[];
   try{
@@ -146,6 +146,62 @@ async function dlist(prefix){
   }catch(e){
     try{var tk="";do{var r2=await fx(BASE+"/"+COL+"?key="+KEY+"&pageSize=300"+(tk?"&pageToken="+encodeURIComponent(tk):""),null,15000);if(!r2.ok)throw 0;var j=await r2.json();(j.documents||[]).forEach(function(d){if(d.name.split("/").pop().indexOf(prefix)===0){var v=parseDoc(d);if(v)out.push(v)}});tk=j.nextPageToken||""}while(tk);return out}catch(e2){return null}
   }
+}
+
+/* ───────── Timer2~6 분산 저장 (학생별 샤딩) ─────────
+   yp-data / yp-pub / yp-admincmd 문서를 학번 % 6 기준으로 Timer1(메인)·Timer2~6에 나눠 저장.
+   - 기존 데이터(Timer1)는 그대로 읽고, 다음 저장부터 해당 샤드로 이동(점진 이전)
+   - 샤드 연결/권한 실패 시 60초간 제외하고 자동으로 Timer1로 대체 */
+var SHARD_NAMES=["Timer2","Timer3","Timer4","Timer5","Timer6"],shardDeadAt={};
+SHARD_NAMES.forEach(function(n){try{extraFirebase[n].db.settings({experimentalAutoDetectLongPolling:true,merge:true})}catch(e){}});
+function shardKey(id){var m=/^(yp-data|yp-pub|yp-admincmd):(\d+)$/.exec(id);if(!m)return null;var k=Number(m[2])%6;return k===0?null:SHARD_NAMES[k-1]}
+function shardAlive(n){return !shardDeadAt[n]||Date.now()-shardDeadAt[n]>60000}
+function shardFail(n,e){shardDeadAt[n]=Date.now();console.warn("[샤드 "+n+"] 사용 불가 → Timer1로 대체",e&&e.code||e)}
+function withTimeout(p,ms){var t;return Promise.race([p,new Promise(function(_,rej){t=setTimeout(function(){rej({code:"timeout"})},ms||8000)})]).then(function(v){clearTimeout(t);return v},function(e){clearTimeout(t);throw e})}
+function shardDoc(n,id){return extraFirebase[n].db.collection(COL).doc(id)}
+async function dget(id){
+  var n=shardKey(id);if(!USE_FB||!n)return dgetMain(id);
+  var found=false,sv=null,st=0,flag=lget("fbk:"+id);
+  if(shardAlive(n)){try{var s=await withTimeout(shardDoc(n,id).get());if(s.exists){found=true;sv=JSON.parse(s.data().value);st=Number(s.data().updatedAt)||0}}catch(e){shardFail(n,e)}}
+  if(found&&!flag)return sv;
+  var mv=await dgetMain(id);
+  if(found&&mv!==undefined&&mv!==null)return st<Number(flag)?mv:sv;
+  return found?sv:mv;
+}
+async function dset(id,o){
+  var n=shardKey(id);if(!USE_FB||!n)return dsetMain(id,o);
+  if(shardAlive(n)){try{await withTimeout(shardDoc(n,id).set({value:JSON.stringify(o),updatedAt:Date.now()}));ldel("fbk:"+id);return true}catch(e){shardFail(n,e)}}
+  var ok=await dsetMain(id,o);if(ok)lset("fbk:"+id,Date.now());return ok;
+}
+async function ddel(id){
+  var n=shardKey(id);if(!USE_FB||!n)return ddelMain(id);
+  var a=false;if(shardAlive(n)){try{await withTimeout(shardDoc(n,id).delete());a=true}catch(e){shardFail(n,e)}}
+  var b=await ddelMain(id);ldel("fbk:"+id);return a&&b;
+}
+async function dlist(prefix){
+  if(!USE_FB||prefix!=="yp-pub:")return dlistMain(prefix);
+  var hi=prefix.slice(0,-1)+String.fromCharCode(prefix.charCodeAt(prefix.length-1)+1),FP=firebase.firestore.FieldPath.documentId();
+  var jobs=SHARD_NAMES.map(function(n){if(!shardAlive(n))return Promise.resolve([]);return withTimeout(extraFirebase[n].db.collection(COL).where(FP,">=",prefix).where(FP,"<",hi).get()).then(function(q){var o=[];q.forEach(function(d){try{var v=JSON.parse(d.data().value);if(v)o.push(v)}catch(e){}});return o},function(e){shardFail(n,e);return []})});
+  var r=await Promise.all([dlistMain(prefix)].concat(jobs)),main=r[0];if(main===null)return null;
+  var map={},extra=[];main.forEach(function(x){if(x&&x.sid)map[x.sid]=x;else extra.push(x)});
+  for(var i=1;i<r.length;i++)r[i].forEach(function(x){if(x&&x.sid)map[x.sid]=x;else extra.push(x)});
+  return Object.keys(map).map(function(k){return map[k]}).concat(extra);
+}
+/* 포인트 등 사용자 데이터를 트랜잭션으로 수정 (샤드 우선, 실패 시 Timer1) */
+async function userTx(sid,fn){
+  var key="yp-data:"+sid,sn=shardKey(key),dbs=[],legacy=null,last;
+  if(sn&&shardAlive(sn))dbs.push({n:sn,db:extraFirebase[sn].db});
+  dbs.push({n:"",db:mainDb});
+  for(var i=0;i<dbs.length;i++){
+    var d=dbs[i],ref=d.db.collection(COL).doc(key);
+    try{
+      if(d.n&&legacy===null){legacy="";try{var ls=await mainDb.collection(COL).doc(key).get();if(ls.exists)legacy=ls.data().value||""}catch(e){}}
+      var res=await withTimeout(d.db.runTransaction(async function(tx){var s=await tx.get(ref),raw=s.exists?(s.data().value||""):(d.n?legacy:""),u=raw?JSON.parse(raw):newD(),r=fn(u);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()});return r}),10000);
+      if(d.n)ldel("fbk:"+key);else if(sn)lset("fbk:"+key,Date.now());
+      return res;
+    }catch(e){last=e;if(e&&e.code&&d.n){shardFail(d.n,e);continue}throw e}
+  }
+  throw last;
 }
 /* ───────── 상태 ───────── */
 var $=function(s){return document.querySelector(s)},p2=function(x){return String(x).padStart(2,"0")};
@@ -515,14 +571,14 @@ function shopPage(){var c=ensureGiftRoulette(shopCfg||shopDefault()),h='<div cla
   h+=shopCard("🎁 "+g.name+" 룰렛",'<div class="mut" style="margin-bottom:6px">1회 '+g.price+'P · 남은 수량 '+g.stock+'</div>'+rouletteWheel(rows,'gift-'+g.id)+'<button data-a="shop-gift-spin" data-id="'+g.id+'" class="btn" style="width:100%" '+((D.points||0)<g.price||g.stock<1?'disabled':'')+'>룰렛 돌리기 · '+g.price+'P</button>');
  });
  h+='</div>';return h}
-async function shopTransaction(mutator){if(!USE_FB||!mainDb||!shopDb)throw new Error("Firebase 연결이 필요해요");await flush();var userRef=mainDb.collection(COL).doc("yp-data:"+me.sid),cfgRef=shopDb.collection(COL).doc("yp-shop-config");var result,updatedUser,updatedCfg;await shopDb.runTransaction(async function(tx){var cs=await tx.get(cfgRef);updatedCfg=cs.exists?JSON.parse(cs.data().value||"{}"):shopDefault();});await mainDb.runTransaction(async function(tx){var us=await tx.get(userRef);updatedUser=us.exists?JSON.parse(us.data().value||"{}"):newD();result=mutator(updatedUser,updatedCfg);tx.set(userRef,{value:JSON.stringify(updatedUser),updatedAt:Date.now()});});await cfgRef.set({value:JSON.stringify(updatedCfg),updatedAt:Date.now()},{merge:true});D.points=result.points;D.shopRouletteCount=result.count===undefined?D.shopRouletteCount:result.count;D.shopTitle=result.title||D.shopTitle;saveLocalAfterShop();return result}
+async function shopTransaction(mutator){if(!USE_FB||!mainDb||!shopDb)throw new Error("Firebase 연결이 필요해요");await flush();var userRef=mainDb.collection(COL).doc("yp-data:"+me.sid),cfgRef=shopDb.collection(COL).doc("yp-shop-config");var result,updatedUser,updatedCfg;await shopDb.runTransaction(async function(tx){var cs=await tx.get(cfgRef);updatedCfg=cs.exists?JSON.parse(cs.data().value||"{}"):shopDefault();});await userTx(me.sid,function(u){updatedUser=u;result=mutator(u,updatedCfg);return result});await cfgRef.set({value:JSON.stringify(updatedCfg),updatedAt:Date.now()},{merge:true});D.points=result.points;D.shopRouletteCount=result.count===undefined?D.shopRouletteCount:result.count;D.shopTitle=result.title||D.shopTitle;saveLocalAfterShop();return result}
 function saveLocalAfterShop(){dirty=0;applyCosmetics();if(tab==='shop'&&!shopSpin)render()}
 async function shopGift(id){if(shopBusy)return;shopBusy=1;try{await loadShop();var chosen=(shopCfg.gifts||[]).find(function(g){return g.id===id});if(!chosen)throw Error('상품을 찾을 수 없어요');var order={id:'gift-'+me.sid+'-'+Date.now(),sid:me.sid,name:me.name,giftId:id,giftName:chosen.name,price:chosen.price,status:'담임 확인 대기',created:Date.now()};await shopTransaction(function(u,c){var g=c.gifts.find(function(x){return x.id===id});if(!g||g.stock<1)throw Error('이미 품절된 상품이에요');if((u.points||0)<g.price)throw Error('포인트가 부족해요');g.stock-=1;u.points-=g.price;order.price=g.price;order.giftName=g.name;c.orders=c.orders||[];c.orders.push(order);return{points:u.points}});toast('교환 신청 완료! 담임 확인을 기다려 주세요.')}catch(e){toast(e.message||'교환 실패')}finally{shopBusy=0;await loadShop();render()}}
-function shopAdminPage(){var c=ensureGiftRoulette(shopCfg||shopDefault()),giftFields=c.giftRoulette.map(function(g){return '<div style="padding:10px 0;border-bottom:1px solid #333"><b>'+esc(g.name)+'</b><label class="mut">당첨 확률 (%)</label><input class="in" type="number" min="0" max="100" step="0.001" id="gp-'+g.id+'" value="'+g.giftChance+'"><label class="mut">1회 비용 (P)</label><input class="in" type="number" min="0" id="gc-'+g.id+'" value="'+g.price+'"><label class="mut">재고 수량</label><input class="in" type="number" min="0" step="1" id="gs-'+g.id+'" value="'+g.stock+'"></div>'}).join(''),pointFields=c.giftPointRewards.map(function(x){return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0"><span style="width:65px">'+x.v+'P</span><input class="in" type="number" min="0" max="100" step="0.1" id="gpr-'+x.v+'" value="'+x.p+'" style="width:90px"><span class="mut">%</span></div>'}).join('');
-return '<div class="sc" style="padding:14px 14px 30px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button data-a="shop-admin-back" class="ib" aria-label="뒤로">'+I("cl")+'</button><div style="font-size:22px;font-weight:650">관리자 설정 <span class="mut">10805</span></div></div>'+shopCard('기프트카드 룰렛 설정',giftFields+pointFields+'<div class="mut">각 기프트카드 룰렛은 별개로 작동합니다. 포인트 보상 비율은 남은 확률에 비례해 배분됩니다. 60P는 현재 0%로 설정되어 있습니다.</div><button data-a="shop-save-gift-roulette" class="btn" style="margin-top:10px">기프트카드 룰렛 저장</button>')+shopCard('기존 포인트 룰렛 확률 설정',c.roulette.map(function(x,i){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="width:65px">'+(x.v?x.v+'P':'꽝')+'</span><input class="in" type="number" min="0" max="100" id="rp'+i+'" value="'+x.p+'" style="width:85px"><span class="mut">%</span></div>'}).join('')+'<div class="mut">확률 합계가 정확히 100%여야 저장돼요.</div><button data-a="shop-save-prob" class="btn" style="margin-top:10px">확률 저장</button>')+shopCard('간식 및 기존 상품 설정','<label class="mut">간식 10뽑 가격 (P)</label><input class="in" id="snackprice" type="number" min="0" value="'+c.snack.price+'"><button data-a="shop-save-prices" class="btn" style="margin-top:10px">간식 가격 저장</button>')+shopCard('학생별 포인트 조정','<label class="mut">학생 학번</label><input class="in" id="point-sid" inputmode="numeric" placeholder="예: 10801"><label class="mut">변경할 포인트 (+/-)</label><input class="in" id="point-delta" type="number" placeholder="예: 500 또는 -100"><button data-a="shop-adjust" class="btn" style="margin-top:10px">포인트 변경</button>')+'</div>'}
+function shopAdminPage(){var c=ensureGiftRoulette(shopCfg||shopDefault()),giftFields=c.giftRoulette.map(function(g){return '<div style="padding:10px 0;border-bottom:1px solid #333"><b>'+esc(g.name)+'</b><label class="mut">당첨 확률 (%)</label><input class="in" type="number" min="0" max="100" step="0.001" id="gp-'+g.id+'" value="'+g.giftChance+'"><label class="mut">1회 비용 (P)</label><input class="in" type="number" min="0" id="gc-'+g.id+'" value="'+g.price+'"><label class="mut">재고 수량</label><input class="in" type="number" min="0" step="1" id="gs-'+g.id+'" value="'+g.stock+'"></div>'}).join(''),pointFields='<div class="mut" style="margin:12px 0 4px">포인트 보상 (금액 · 확률)</div>'+c.giftPointRewards.map(function(x,i){return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0"><input class="in" type="number" min="0" step="1" id="gprv-'+i+'" value="'+x.v+'" style="width:80px"><span>P</span><input class="in" type="number" min="0" max="100" step="0.1" id="gpr-'+i+'" value="'+x.p+'" style="width:80px"><span class="mut">%</span><button data-a="shop-reward-del" data-i="'+i+'" class="chip" style="flex:none;padding:6px 10px;margin-left:auto">삭제</button></div>'}).join('')+'<button data-a="shop-reward-add" class="chip" style="margin-top:6px">+ 보상 추가</button>';
+return '<div class="sc" style="padding:14px 14px 30px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button data-a="shop-admin-back" class="ib" aria-label="뒤로">'+I("cl")+'</button><div style="font-size:22px;font-weight:650">관리자 설정 <span class="mut">10805</span></div></div>'+shopCard('기프트카드 룰렛 설정',giftFields+pointFields+'<div class="mut">각 기프트카드 룰렛은 별개로 작동합니다. 포인트 보상 금액(예: 50P, 60P)과 확률을 직접 수정·추가·삭제할 수 있어요. 보상 확률 합계는 100%여야 하고, 남은 확률(기프트카드 당첨 제외)에 비례해 배분됩니다.</div><button data-a="shop-save-gift-roulette" class="btn" style="margin-top:10px">기프트카드 룰렛 저장</button>')+shopCard('기존 포인트 룰렛 확률 설정',c.roulette.map(function(x,i){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="width:65px">'+(x.v?x.v+'P':'꽝')+'</span><input class="in" type="number" min="0" max="100" id="rp'+i+'" value="'+x.p+'" style="width:85px"><span class="mut">%</span></div>'}).join('')+'<div class="mut">확률 합계가 정확히 100%여야 저장돼요.</div><button data-a="shop-save-prob" class="btn" style="margin-top:10px">확률 저장</button>')+shopCard('간식 및 기존 상품 설정','<label class="mut">간식 10뽑 가격 (P)</label><input class="in" id="snackprice" type="number" min="0" value="'+c.snack.price+'"><button data-a="shop-save-prices" class="btn" style="margin-top:10px">간식 가격 저장</button>')+shopCard('학생별 포인트 조정','<label class="mut">학생 학번</label><input class="in" id="point-sid" inputmode="numeric" placeholder="예: 10801"><label class="mut">변경할 포인트 (+/-)</label><input class="in" id="point-delta" type="number" placeholder="예: 500 또는 -100"><button data-a="shop-adjust" class="btn" style="margin-top:10px">포인트 변경</button>')+'</div>'}
 async function enterShopAdmin(){await loadShop();tab="shopadmin";render()}
 function teacherShopOrders(){var c=shopCfg||shopDefault(),orders=(c.orders||[]).filter(function(o){return !!o.giftId||String(o.giftName||"").indexOf("기프트카드")>=0||o.type==="snack"||String(o.giftName||"").indexOf("간식 당첨")>=0}).sort(function(a,b){return b.created-a.created});return '<div class="sc" style="padding:14px 14px 30px"><div style="font-size:21px;font-weight:650;margin-bottom:12px">당첨 알림 및 신청 관리</div><div class="mut" style="margin-bottom:12px">기프트카드 룰렛과 간식 랜덤 뽑기 당첨 내역입니다. 기프트카드는 승인/거절할 수 있어요.</div>'+(orders.length?orders.map(function(o){var pending=String(o.status||"").indexOf("대기")>=0;return '<div class="card" style="margin-bottom:9px;padding:12px"><b>'+esc(o.giftName)+'</b><div class="mut">'+esc(o.name)+' · '+o.sid+' · '+Number(o.price).toLocaleString()+'P</div><div class="mut">'+new Date(o.created).toLocaleString()+' · '+esc(o.status)+'</div>'+(pending&&o.giftId?'<div style="display:flex;gap:8px;margin-top:10px"><button data-a="teacher-gift-approve" data-id="'+esc(o.id)+'" class="btn" style="flex:1">승인</button><button data-a="teacher-gift-reject" data-id="'+esc(o.id)+'" class="chip" style="flex:1">거절 및 환불</button></div>':'')+'</div>'}).join(''):'<div class="mut">새 기프트카드 구매 신청이 없어요.</div>')+'</div>'}
-async function teacherSetGiftOrder(orderId,approve){if(!me||me.sid!=="10800")throw new Error("담임 계정만 처리할 수 있어요");var c=await loadShop(),o=(c.orders||[]).find(function(x){return x.id===orderId});if(!o)throw new Error("신청을 찾을 수 없어요");if(String(o.status||"").indexOf("대기")<0)throw new Error("이미 처리된 신청이에요");if(!approve){var ref=mainDb.collection(COL).doc("yp-data:"+o.sid);await mainDb.runTransaction(async function(tx){var ds=await tx.get(ref),u=ds.exists?JSON.parse(ds.data().value||"{}"):newD();u.points=(Number(u.points)||0)+Number(o.price||0);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()})});var g=(c.gifts||[]).find(function(x){return x.id===o.giftId});if(g)g.stock=(Number(g.stock)||0)+1;}o.status=approve?"담임 승인 완료":"담임 거절 · 포인트 환불 완료";await shopDb.collection(COL).doc("yp-shop-config").set({value:JSON.stringify(c),updatedAt:Date.now()},{merge:true});shopCfg=c;toast(approve?"신청을 승인했어요":"신청을 거절하고 포인트를 환불했어요");teacherOrdersRender()}
+async function teacherSetGiftOrder(orderId,approve){if(!me||me.sid!=="10800")throw new Error("담임 계정만 처리할 수 있어요");var c=await loadShop(),o=(c.orders||[]).find(function(x){return x.id===orderId});if(!o)throw new Error("신청을 찾을 수 없어요");if(String(o.status||"").indexOf("대기")<0)throw new Error("이미 처리된 신청이에요");if(!approve){await userTx(o.sid,function(u){u.points=(Number(u.points)||0)+Number(o.price||0);return u.points});var g=(c.gifts||[]).find(function(x){return x.id===o.giftId});if(g)g.stock=(Number(g.stock)||0)+1;}o.status=approve?"담임 승인 완료":"담임 거절 · 포인트 환불 완료";await shopDb.collection(COL).doc("yp-shop-config").set({value:JSON.stringify(c),updatedAt:Date.now()},{merge:true});shopCfg=c;toast(approve?"신청을 승인했어요":"신청을 거절하고 포인트를 환불했어요");teacherOrdersRender()}
 async function enterTeacherOrders(){scr="teacherorders";$("#auth").style.display="none";$("#app").classList.remove("on");$("#adm").classList.add("on");await loadShop();teacherOrdersRender()}
 function teacherOrdersRender(){if(scr!=="teacherorders")return;$("#adm").innerHTML='<div class="yt"><span style="font-weight:600">10800 · 당첨 알림</span><button data-a="to-refresh" class="chip" style="margin-left:auto">새로고침</button><button data-a="m-lo" class="chip">로그아웃</button></div><div class="yb">'+teacherShopOrders()+'</div>'}
 
@@ -612,221 +668,4 @@ async function doLogin(){var sid=($("#lsid").value||"").trim(),pw=$("#lpw").valu
 function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
-  me={sid:sid,name:nm};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter()}
-async function doReg1(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
-  if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
-  if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
-  if(sid===SHOP_ADMIN){aerr="상점 관리자 계정은 직접 등록할 수 없어요.";$("#auth").innerHTML=authHTML();return}
-  scr="reg2";aerr="";$("#auth").innerHTML=authHTML()}
-
-async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<6){aerr="비밀번호는 6자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
-  if(pw!==pw2){aerr="비밀번호가 서로 달라.";$("#auth").innerHTML=authHTML();return}
-  busy=1;aerr="";$("#auth").innerHTML=authHTML();
-  try{await authPersistence;await fbAuth.createUserWithEmailAndPassword(studentEmail(reg.sid),pw);var ok=await saveAcc(reg.sid,{studentId:reg.sid,name:reg.name});busy=0;
-    if(!ok){aerr="계정은 만들어졌지만 학생 정보 저장에 실패했어. 선생님에게 문의해줘.";$("#auth").innerHTML=authHTML();return}
-    me={sid:reg.sid,name:reg.name};try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}enter();
-  }catch(e){busy=0;aerr=authMessage(e);$("#auth").innerHTML=authHTML()}}
-
-async function logout(){if(D&&D.run){bank();persist()}await flush();if(USE_FB){try{await fbAuth.signOut()}catch(e){}}try{localStorage.removeItem("ypMe")}catch(e){}me=null;D=null;pubs={};myG=[];grps=[];ldr={sid:"",pw:""};showAuth("chooser")}
-/* ───────── 담임 관리자 페이지 ───────── */
-var av="home",asid="",aD=null,accs={},adminData={},agl=0,aSort="day",amx="";
-function abn(){return USE_FB?"":'<div class="mut" style="background:#2a2a2a;border-radius:10px;padding:10px 12px;margin-bottom:12px;line-height:1.6">서버(Firebase)가 연결되지 않아서 이 기기에 저장된 기록만 보여요. 모든 학생의 기록을 보려면 파일 위쪽 USE_FB를 true로 바꿔야 해요.</div>'}
-function mcard(l,v){return '<div style="flex:1;min-width:0;background:#2a2a2a;border-radius:12px;padding:10px 6px;text-align:center"><div class="mut" style="font-size:11px;margin-bottom:3px">'+l+'</div><b style="font-weight:500;font-size:13px">'+v+'</b></div>'}
-function adminSeconds(sid){var d=adminData[sid]&&adminData[sid].days||{},t=0;Object.keys(d).forEach(function(k){var o=d[k]||{};Object.keys(o).forEach(function(x){t+=Number(o[x])||0})});return t}
-function adminDay(sid,k){var d=adminData[sid]&&adminData[sid].days||{},o=d[k]||{},t=0;Object.keys(o).forEach(function(x){t+=Number(o[x])||0});return t}
-function stuRows(){return Object.keys(ROSTER).filter(function(i){return i!==ADMIN}).map(function(sid){var x=pubs[sid]||null,d=x?x.days||{}:{},get=function(k){return adminDay(sid,k)+(k===today()?liveOf(x):0)},r=x&&x.run;
-  return{sid:sid,n:ROSTER[sid],day:get(today()),wk:span("w",get),total:adminSeconds(sid)+liveOf(x),on:r&&fresh(r)&&!r.paused?1:0,sub:r&&fresh(r)?r.n:"",has:!!adminData[sid]||!!x||!!accs[sid]}})}
-function aHome(){var rows=stuRows(),n=rows.length,has=rows.filter(function(r){return r.has}).length,on=rows.filter(function(r){return r.on}).length,avg=n?rows.reduce(function(a,r){return a+r.day},0)/n:0,grand=rows.reduce(function(a,r){return a+r.total},0),daily={},dates=[];
-  rows.sort(aSort==="name"?function(a,b){return a.n<b.n?-1:1}:aSort==="wk"?function(a,b){return b.wk-a.wk}:aSort==="total"?function(a,b){return b.total-a.total}:function(a,b){return b.day-a.day});
-  Object.keys(adminData).forEach(function(sid){var d=adminData[sid]&&adminData[sid].days||{};Object.keys(d).forEach(function(k){daily[k]=(daily[k]||0)+adminDay(sid,k)})});
-  var now=new Date();for(var i=0;i<30;i++){var dt=new Date(now);dt.setDate(now.getDate()-i);var k=key(dt);daily[k]=(daily[k]||0)+(k===today()?rows.reduce(function(a,r){return a+(pubs[r.sid]?liveOf(pubs[r.sid]):0)},0):0);dates.push(k)}
-  var h='<div class="sc" style="padding:14px 16px 30px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:20px;font-weight:600">전체 관리 현황</span><button data-a="m-rf" class="ib" aria-label="새로고침">'+I("refresh",18)+'</button></div>'+abn()+(agl?load():'')+'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'+mcard("전체 학생",n+"명")+mcard("계정·기록 있음",has+"명")+' <button data-a="m-now" class="card" style="flex:1;min-width:105px;text-align:left"><div class="mut">현재 공부 중</div><div style="font-size:20px;font-weight:700;margin-top:5px">' +on+'명</div><div class="mut">눌러서 명단 보기</div></button>'+mcard("오늘 전체",hk(rows.reduce(function(a,r){return a+r.day},0)))+'</div><div class="card" style="margin-bottom:12px"><div style="font-size:14px;color:#aaa">전체 누적 공부 시간</div><div style="font-size:26px;font-weight:700;margin-top:5px">'+hk(grand)+'</div><div class="mut" style="margin-top:4px">등록된 모든 학생의 저장 기록 합계</div></div><div class="card" style="margin-bottom:14px"><div style="font-size:15px;margin-bottom:8px">최근 30일 · 날짜별 전체 공부 시간</div>';
-  dates.forEach(function(k){var dt=new Date(k+"T00:00:00");h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #292929;font-size:13px"><span>'+k+' ('+"일월화수목금토"[dt.getDay()]+')</span><b class="tm">'+hk(daily[k]||0)+'</b></div>'});
-  h+='</div><div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 9px"><span style="font-size:18px;font-weight:600">학생별 관리</span><span class="mut">학생을 누르면 상세 기록</span></div><div style="display:flex;gap:6px;margin-bottom:10px">'+[["day","오늘순"],["wk","이번 주순"],["total","누적순"],["name","이름순"]].map(function(v){var o=aSort===v[0];return '<button data-a="m-sort" data-v="'+v[0]+'" style="padding:6px 10px;border-radius:99px;font-size:12px;background:'+(o?A:'#2a2a2a')+';color:'+(o?'#111':'#bbb')+'">'+v[1]+'</button>'}).join('')+'</div>';
-  rows.forEach(function(r){h+='<div data-a="m-st" data-id="'+r.sid+'" style="display:flex;align-items:center;gap:10px;background:#111;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer"><i style="width:10px;height:10px;border-radius:50%;flex:none;background:'+(r.on?'#69DB7C':'#444')+'"></i><div style="flex:1;min-width:0"><div>'+esc(r.n)+' <span class="mut">'+r.sid+'</span></div><div class="mut">'+(r.on?esc(r.sub)+' 공부 중':r.has?'기록 있음':'기록 없음')+'</div><div class="mut">누적 '+hk(r.total)+'</div></div><div style="text-align:right"><div class="tm">'+hk(r.day)+'</div><div class="mut">오늘</div><div class="mut">이번 주 '+hk(r.wk)+'</div></div></div>'});
-  return h+'</div>'}
-function aStu(){var sid=asid,h='<div class="sc" style="padding:10px 16px 30px"><div style="display:flex;align-items:center;margin-bottom:8px"><button data-a="m-sb" class="ib" aria-label="뒤로">'+I("cl")+'</button><span style="font-size:18px">'+esc(ROSTER[sid])+' <span class="mut">'+sid+'</span></span></div>';
-  if(aD===undefined)return h+load()+'</div>';
-  if(!aD)h+='<div class="mut" style="padding:20px 0;text-align:center">아직 기록이 없어요.</div>';
-  else{var days=aD.days||{},ds=function(k){var o=days[k]||{},t=0,x;for(x in o)t+=o[x];return t+(k===today()?liveOf(pubs[sid]):0)},now=new Date(),i,arr=[],tot=0,wk=0,mo=0,sb={},nm={},wi=(now.getDay()+6)%7,d;
-    (aD.subj||[]).forEach(function(s){nm[s.id]=s.n});
-    Object.keys(days).forEach(function(k){var o=days[k],x;for(x in o){tot+=o[x];sb[x]=(sb[x]||0)+o[x]}});
-    for(i=0;i<14;i++){d=new Date(now);d.setDate(now.getDate()-13+i);arr.push([d,ds(key(d))])}
-    for(i=0;i<=wi;i++){d=new Date(now);d.setDate(now.getDate()-i);wk+=ds(key(d))}
-    for(i=0;i<now.getDate();i++){d=new Date(now);d.setDate(now.getDate()-i);mo+=ds(key(d))}
-    var mx=Math.max.apply(null,arr.map(function(a){return a[1]}).concat([3600])),sk=Object.keys(sb).sort(function(a,b){return sb[b]-sb[a]});
-    h+='<div style="display:flex;gap:6px;margin-bottom:6px">'+mcard("오늘",hk(ds(today())))+mcard("이번 주",hk(wk))+mcard("이번 달",hk(mo))+'</div><div class="mut" style="text-align:center;margin-bottom:12px">누적 '+hk(tot)+'</div>';
-    h+='<div class="card"><div style="font-size:14px;color:#aaa">최근 14일</div><div style="display:flex;gap:3px;align-items:flex-end;height:100px;margin-top:10px">'+arr.map(function(a){return '<div style="flex:1;text-align:center"><div style="height:'+Math.max(3,a[1]/mx*80)+'px;background:'+(key(a[0])===today()?A:'#3a3a3a')+';border-radius:3px"></div><div class="mut" style="font-size:10px;margin-top:3px">'+a[0].getDate()+'</div></div>'}).join("")+'</div></div>';
-    if(sk.length){h+='<div class="card"><div style="font-size:14px;color:#aaa;margin-bottom:6px">과목별 누적</div>'+sk.map(function(x){return '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span>'+esc(nm[x]||"(삭제된 과목)")+'</span><span class="tm">'+hk(sb[x])+'</span></div>'}).join("")+'</div>'}
-    var c={완료:0,중간:0,안함:0,미체크:0},lim=key(new Date(now.getTime()-6*864e5));Object.keys(aD.tasks||{}).forEach(function(k){if(k>=lim&&k<=today())aD.tasks[k].forEach(function(t){c[t.st||"미체크"]++})});
-    var tt=c.완료+c.중간+c.안함+c.미체크;h+='<div class="card"><div style="font-size:14px;color:#aaa;margin-bottom:6px">최근 7일 할 일</div>'+(tt?'<div style="font-size:14px">완료 '+c.완료+' · 중간 '+c.중간+' · 안함 '+c.안함+' · 미체크 '+c.미체크+' <span class="mut">(완료율 '+Math.round(c.완료/tt*100)+'%)</span></div>':'<div class="mut">등록한 할 일이 없어요.</div>')+'</div>';h+='<div class="card"><div style="font-size:14px;color:#aaa;margin-bottom:8px">전체 날짜별 공부 기록</div>';var allDates=Object.keys(days).filter(function(k){return ds(k)>0}).sort().reverse();if(allDates.length)allDates.forEach(function(k){h+='<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #292929;font-size:13px"><span>'+k+'</span><b class="tm">'+hk(ds(k))+'</b></div>'});else h+='<div class="mut">저장된 날짜별 기록이 없어요.</div>';h+='</div>'}
-  h+='<div class="mut" style="margin:6px 0 8px">관리</div><button data-a="m-rs" class="btn g" style="color:#FF6259;margin-bottom:8px">이 학생 기록 초기화</button>';
-  if(USE_FB)h+='<div class="card"><div style="font-size:14px;margin-bottom:8px">비밀번호 초기화</div><div style="display:flex;gap:8px"><input id="npw" class="in" type="password" placeholder="Firebase 콘솔에서 변경 (6자 이상)"><button data-a="m-pwsv" class="chip" style="flex:none;background:'+A+';color:#111">변경</button></div></div><button data-a="m-ad" class="btn g" style="color:#FF6259">계정 삭제</button>';
-  return h+'</div>'}
-function aGroups(){var l=grps.slice().sort(function(a,b){return b.created-a.created}),h='<div class="sc" style="padding:14px 16px 30px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:20px;font-weight:500">그룹 관리</span><button data-a="m-rf" class="ib" aria-label="새로고침">'+I("refresh",18)+'</button></div>'+abn()+(agl?load():'');
-  if(!agl&&!l.length)h+='<div class="mut" style="text-align:center;padding:30px 0">만들어진 그룹이 없어요.</div>';
-  l.forEach(function(g){h+='<div class="card" style="padding:14px 16px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div style="min-width:0"><div style="font-size:16px">'+esc(g.name)+'</div><div class="mut" style="margin-top:2px;line-height:1.6">그룹장 '+esc(g.ownerName)+' · '+g.members.length+'/'+g.cap+'명 · '+(g.pub?'공개':'비공개')+' · 코드 '+esc(g.code)+'</div></div><span style="display:flex;gap:6px;flex:none"><button data-a="m-gview" data-id="'+g.id+'" class="chip">그룹 현황</button><button data-a="m-gm" data-id="'+g.id+'" class="chip">멤버</button><button data-a="m-gd" data-id="'+g.id+'" class="chip" style="color:#FF6259">삭제</button></span></div>'+(amx===g.id?'<div style="margin-top:10px;border-top:.5px solid #2a2a2a;padding-top:6px">'+g.members.map(function(m){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px"><span>'+esc(ROSTER[m]||m)+' <span class="mut">'+m+'</span></span><button data-a="m-gx" data-id="'+g.id+'" data-s="'+m+'" class="ib" style="width:28px;height:28px" aria-label="내보내기">'+I("x",16)+'</button></div>'}).join("")+'</div>':'')+'</div>'});
-  return h+'</div>'}
-function activeMembers(ids){
- return ids.map(function(sid){var x=pubs[sid]||null,r=x&&x.run,online=!!(r&&fresh(r)&&!r.paused);
-  return{sid:sid,name:(x&&x.nick)||ROSTER[sid]||sid,active:online,subject:online?r.n:"",elapsed:online?liveOf(x):0,paused:!!(r&&fresh(r)&&r.paused),hasRun:!!(r&&fresh(r))};
- });
-}
-function aNow(){
- var rows=stuRows().filter(function(x){return x.on});
- return '<div class="sc" style="padding:14px 16px 30px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><button data-a="m-now-back" class="ib">'+I("cl")+'</button><b style="font-size:20px">지금 공부 중인 학생</b><button data-a="m-rf" class="ib" style="margin-left:auto">'+I("refresh",18)+'</button></div>'+abn()+(rows.length?rows.map(function(x){return '<div class="card" style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px"><div><b>'+esc(x.n)+'</b> <span class="mut">'+x.sid+'</span><div class="mut">'+esc(x.sub||"공부 중")+' · '+hk(liveOf(pubs[x.sid]))+'</div></div><button data-a="m-gstop" data-s="'+x.sid+'" class="chip" style="color:#ff7770">타이머 중지</button></div></div>'}).join(""):'<div class="mut" style="padding:25px;text-align:center">현재 공부 중인 학생이 없어요.</div>')+'</div>';
-}
-function aGroupDetail(){
- var g=grps.filter(function(x){return x.id===agid})[0];if(!g)return '<div class="sc" style="padding:16px"><button data-a="m-gback" class="ib">'+I("cl")+'</button><div class="mut">그룹 정보를 찾을 수 없어요.</div></div>';
- var rows=activeMembers(g.members||[]),on=rows.filter(function(x){return x.active});
- return '<div class="sc" style="padding:14px 16px 30px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><button data-a="m-gback" class="ib">'+I("cl")+'</button><b style="font-size:20px">'+esc(g.name)+'</b><button data-a="m-rf" class="ib" style="margin-left:auto">'+I("refresh",18)+'</button></div>'+abn()+'<div class="card" style="margin-bottom:12px"><div style="font-size:15px">현재 공부 중 <b style="color:'+A+'">'+on.length+'명</b> / '+rows.length+'명</div><div class="mut" style="margin-top:4px">멤버별 타이머 상태와 기록을 관리할 수 있어요.</div></div>'+rows.map(function(x){return '<div class="card" style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div style="min-width:0"><b>'+esc(x.name)+'</b> <span class="mut">'+x.sid+'</span><div class="mut" style="margin-top:4px">'+(x.active?'<span style="color:#69db7c">● 공부 중</span> · '+esc(x.subject)+' · '+hk(x.elapsed):x.paused?'일시정지 중':'공부 중 아님')+'</div></div><div style="display:flex;flex-direction:column;gap:6px;flex:none"><button data-a="m-gstop" data-s="'+x.sid+'" class="chip" '+(!x.active?'disabled':'')+' style="color:#ff7770">타이머 중지</button><button data-a="m-greset" data-s="'+x.sid+'" class="chip" style="color:#ff7770">시간 기록 초기화</button></div></div></div>'}).join("")+'</div>';
-}
-function tg(k,l,on){return '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:.5px solid #2c2c2e"><span>'+l+'</span><button data-a="m-tg" data-k="'+k+'" aria-label="'+l+'" style="width:46px;height:26px;border-radius:13px;background:'+(on?A:'#444')+';position:relative;transition:.25s;flex:none"><i style="position:absolute;top:3px;left:'+(on?'23px':'3px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:.25s"></i></button></div>'}
-function aPages(){var t=conf.tabs;return '<div class="sc" style="padding:14px 16px 30px"><div style="font-size:20px;font-weight:500;margin-bottom:12px">페이지 관리</div>'+abn()+'<div class="mut" style="margin-bottom:6px">학생에게 보이는 페이지</div><div style="background:#1c1c1e;border-radius:14px;overflow:hidden;margin-bottom:16px">'+tg("todo","할 일",t.todo!==0)+tg("cal","캘린더",t.cal!==0)+tg("group","그룹",t.group!==0)+tg("rank","랭킹",t.rank!==0)+'</div><div class="mut" style="margin-bottom:6px">접속</div><div style="background:#1c1c1e;border-radius:14px;overflow:hidden;margin-bottom:16px">'+tg("lock","학생 접속 잠금",!!conf.lock)+'</div><div class="mut" style="margin-bottom:6px">공지 (학생 타이머 화면 맨 위에 표시)</div><input id="nt" class="in" maxlength="80" value="'+esc(conf.notice)+'" placeholder="예: 시험 기간에는 새벽 1시 이후 공부는 쉬어요"><button data-a="m-ns" class="btn" style="margin-top:10px">공지 저장</button><div class="mut" style="margin-top:14px;line-height:1.6">바꾼 내용은 학생이 다음에 앱을 열 때 적용돼요.</div></div>'}
-function aData(){return '<div class="sc" style="padding:14px 16px 30px"><div style="font-size:20px;font-weight:500;margin-bottom:12px">데이터 관리</div>'+abn()+'<div style="background:#1c1c1e;border-radius:14px;overflow:hidden;margin-bottom:14px">'+srow("전체 기록 CSV 내보내기","","m-exp")+srow("모든 학생 기록 초기화","","m-all")+srow("모든 그룹 삭제","","m-allg",1)+'</div><div class="mut" style="line-height:1.7">CSV에는 학번, 이름, 날짜, 과목, 공부한 초가 들어가요. 엑셀에서 열 수 있어요.<br>초기화와 삭제는 되돌릴 수 없어요.</div></div>'}
-function admBuild(){$("#adm").innerHTML='<div class="yt" id="at"></div><div class="yb" id="ab"></div>';$("#at").innerHTML=[["home","전체 현황"],["groups","전체 그룹"],["pages","앱 관리"],["data","데이터 관리"],["shoporders","기프트카드"]].map(function(t){return '<button class="t" data-a="m-av" data-v="'+t[0]+'">'+t[1]+'</button>'}).join("")+'<button data-a="m-lo" class="chip" style="flex:none;margin-left:4px;padding:8px 10px">로그아웃</button>'}
-function admRender(){if(scr!=="adm")return;var ab=$("#ab"),st=ab.scrollTop;ab.innerHTML=av==="home"?(asid?aStu():aHome()):av==="groups"?aGroups():av==="pages"?aPages():av==="shoporders"?teacherShopOrders():av==="now"?aNow():av==="gdetail"?aGroupDetail():aData();ab.scrollTop=st;
-  document.querySelectorAll("#at button.t").forEach(function(b){b.classList.toggle("on",b.dataset.v===av)})}
-async function aLoad(force){if(agl)return;agl=1;admRender();try{var ids=Object.keys(ROSTER).filter(function(i){return i!==ADMIN}),jobs=ids.map(function(i){return dget("yp-data:"+i)});var r=await Promise.all([loadPubs(force),loadBrowse(),USE_FB?dlist("account:"):[],Promise.all(jobs),loadShop().catch(function(){return shopCfg||shopDefault()})]);accs={};(r[2]||[]).forEach(function(a){if(a&&a.studentId)accs[a.studentId]=1});adminData={};(r[3]||[]).forEach(function(d,i){if(d&&typeof d==="object")adminData[ids[i]]=d})}catch(e){console.error("전체 관리자 데이터 로드 실패",e)}agl=0;admRender()}
-function enterAdmin(){scr="adm";av="home";asid="";aD=null;$("#auth").style.display="none";$("#app").classList.remove("on");$("#adm").classList.add("on");admBuild();admRender();aLoad(true)}
-async function saveConf(){var ok=await dset("yp-conf",conf);toast(ok?"저장했어요":"저장에 실패했어요")}
-function csvc(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
-async function aExport(){var ids=Object.keys(ROSTER).filter(function(i){return i!==ADMIN}),rows=["학번,이름,날짜,과목,초"],docs=await Promise.all(ids.map(function(i){return dget("yp-data:"+i)}));
-  docs.forEach(function(d,j){if(!d)return;var nm={};(d.subj||[]).forEach(function(s){nm[s.id]=s.n});Object.keys(d.days||{}).sort().forEach(function(k){Object.keys(d.days[k]).forEach(function(s){rows.push([ids[j],ROSTER[ids[j]],k,nm[s]||"(삭제된 과목)",Math.round(d.days[k][s])].map(csvc).join(","))})})});
-  if(rows.length<2){toast("내보낼 기록이 없어요");return}
-  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"}));a.download="공부기록_"+today()+".csv";document.body.appendChild(a);a.click();a.remove();toast("CSV를 내려받았어요")}
-async function admAct(a,el){var v=el.dataset.v,id=el.dataset.id;
-  if(a==="m-av"){av=v;asid="";aD=null;$("#ab").scrollTop=0;if(v==="shoporders")await loadShop();admRender();if(v==="groups"&&!grps.length)aLoad(false)}
-  else if(a==="m-rf")aLoad(true);
-  else if(a==="m-sort"){aSort=v;admRender()}
-  else if(a==="m-st"){asid=id;aD=undefined;$("#ab").scrollTop=0;admRender();aD=adminData[id]||await dget("yp-data:"+id);admRender()}
-  else if(a==="m-sb"){asid="";aD=null;admRender()}
-  else if(a==="m-rs"){var s1=asid;dlg("기록 초기화",esc(ROSTER[s1])+" 학생의 공부 기록과 할 일을 모두 지울까요?<br>되돌릴 수 없어요.",async function(){await ddel("yp-data:"+s1);await ddel("yp-pub:"+s1);delete pubs[s1];aD=null;admRender();toast("초기화했어요")})}
-  else if(a==="m-pwsv"){var pw=($("#npw")||{}).value||"";if(pw.length<6){toast("비밀번호는 6자 이상이어야 해요");return}toast("다른 학생의 비밀번호는 Firebase Authentication 관리자 기능으로 변경해야 해요.")}
-  else if(a==="m-ad"){toast("Firebase Authentication 사용자도 함께 삭제해야 해요. Firebase 콘솔에서 해당 계정을 삭제해 주세요.")}
-  else if(a==="m-now"){av="now";admRender()}
-  else if(a==="m-now-back"){av="home";admRender()}
-  else if(a==="m-gview"){agid=id;av="gdetail";admRender()}
-  else if(a==="m-gback"){av="groups";admRender()}
-  else if(a==="m-gstop"){var sidStop=el.dataset.s;dlg("타이머 중지",esc(ROSTER[sidStop]||sidStop)+" 학생의 타이머를 중지할까요?",async function(){var ok=await dset("yp-admincmd:"+sidStop,{action:"stop",at:Date.now()});if(ok)toast("중지 명령을 전달했어요. 학생 앱이 연결되면 적용됩니다.");else toast("명령 전달에 실패했어요")})}
-  else if(a==="m-greset"){var sidReset=el.dataset.s;dlg("시간 기록 초기화",esc(ROSTER[sidReset]||sidReset)+" 학생의 공부 시간 기록을 모두 초기화할까요? 포인트와 계정은 유지됩니다.",async function(){var ok=await dset("yp-admincmd:"+sidReset,{action:"reset",at:Date.now()});if(ok)toast("초기화 명령을 전달했어요. 학생 앱이 연결되면 적용됩니다.");else toast("초기화 명령 전달에 실패했어요")})}
-  else if(a==="m-gm"){amx=amx===id?"":id;admRender()}
-  else if(a==="m-gd"){dlg("그룹 삭제","이 그룹을 삭제할까요?<br>멤버 모두에게서 사라져요.",async function(){await ddel("yp-group:"+id);grps=grps.filter(function(g){return g.id!==id});admRender();toast("삭제했어요")})}
-  else if(a==="m-gx"){var g=grps.filter(function(x){return x.id===id})[0],c=await dget("yp-group:"+id);if(g&&c){c.members=c.members.filter(function(m){return m!==el.dataset.s});await dset("yp-group:"+id,c);g.members=c.members}admRender();toast("멤버를 내보냈어요")}
-  else if(a==="m-tg"){var k=el.dataset.k;if(k==="lock")conf.lock=conf.lock?0:1;else conf.tabs[k]=conf.tabs[k]===0?1:0;admRender();saveConf()}
-  else if(a==="m-ns"){conf.notice=(($("#nt")||{}).value||"").trim();saveConf()}
-  else if(a==="m-exp")aExport();
-  else if(a==="m-all")dlg("모든 학생 기록 초기화","모든 학생의 공부 기록과 할 일이 지워져요.<br>되돌릴 수 없어요.",function(){dlg("한 번 더 확인","정말 모든 학생의 기록을 지울까요?",async function(){var ids=Object.keys(ROSTER).filter(function(i){return i!==ADMIN});await Promise.all(ids.map(function(i){return Promise.all([ddel("yp-data:"+i),ddel("yp-pub:"+i)])}));pubs={};admRender();toast("모든 학생 기록을 초기화했어요")})});
-  else if(a==="m-allg")dlg("모든 그룹 삭제","만들어진 그룹이 모두 삭제돼요.<br>되돌릴 수 없어요.",async function(){await Promise.all(grps.map(function(g){return ddel("yp-group:"+g.id)}));grps=[];admRender();toast("모든 그룹을 삭제했어요")});
-  else if(a==="m-lo")dlg("로그아웃","로그아웃할까요?",logout)}
-async function shopAct(a,el){if(a==='shop-roulette')return shopRoulette(Number(el.dataset.n)||1);if(a==='shop-skip'){if(shopSkipFn)shopSkipFn();return}if(a==='shop-snack')return shopSnack();if(a==='shop-gift-spin')return shopGiftSpin(el.dataset.id);if(a==='shop-gift')return shopGift(el.dataset.id);if(me&&me.sid===SHOP_ADMIN&&tab==='shopadmin'){var c=shopCfg||await loadShop();if(a==='shop-save-prob'){var sum=0;c.roulette.forEach(function(x,i){x.p=Number($('#rp'+i).value);sum+=x.p});if(c.roulette.some(function(x){return !Number.isFinite(x.p)||x.p<0||x.p>100})||sum!==100){toast('확률 합계는 100%여야 해요');return}shopCfg=c;toast(await shopSave()?'확률을 저장했어요':'저장 실패');return}if(a==='shop-save-gift-roulette'){
- ensureGiftRoulette(c);
- var bad=false;
- c.giftRoulette.forEach(function(g){var p=Number($('#gp-'+g.id).value),cost=Number($('#gc-'+g.id).value),stock=Number($('#gs-'+g.id).value);if(!Number.isFinite(p)||p<0||p>100||!Number.isFinite(cost)||cost<0||!Number.isInteger(stock)||stock<0)bad=true;g.giftChance=p;g.price=cost;g.stock=stock});
- c.giftPointRewards.forEach(function(x){var v=Number($('#gpr-'+x.v).value);if(!Number.isFinite(v)||v<0||v>100)bad=true;x.p=v});
- if(bad){toast('확률·비용·수량을 확인해 주세요');return}
- var ps=c.giftPointRewards.reduce(function(a,x){return a+x.p},0);
- if(Math.abs(ps-100)>0.0001){toast('포인트 보상 확률 합계는 100%여야 해요');return}
- shopCfg=c;toast(await shopSave()?'기프트카드 룰렛 설정을 저장했어요':'저장 실패');return
-}if(a==='shop-save-prices'){c.snack.price=Math.max(0,Number($('#snackprice').value)||0);c.gifts.forEach(function(g){g.price=Math.max(0,Number($('#price-'+g.id).value)||0)});shopCfg=c;toast(await shopSave()?'가격을 저장했어요':'저장 실패');return}if(a==='shop-adjust'){var sid=($('#point-sid').value||'').trim(),delta=Number($('#point-delta').value);if(!ROSTER[sid]||sid==='10800'||sid==='10805'||!Number.isFinite(delta)||!delta){toast('학번과 변경 포인트를 확인해 주세요');return}try{var ref=mainDb.collection(COL).doc('yp-data:'+sid);await mainDb.runTransaction(async function(tx){var ds=await tx.get(ref),u=ds.exists?JSON.parse(ds.data().value||'{}'):newD();u.points=Math.max(0,(Number(u.points)||0)+delta);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()})});toast('학생 포인트를 조정했어요')}catch(e){toast('포인트 조정 실패')}return}}}
-/* ───────── 이벤트 ───────── */
-function buildTabs(){$("#yt").innerHTML=[["timer","stopwatch","타이머"],["todo","checkbox","할 일"],["cal","calendar","달력"],["group","users","그룹"],["shop","star","상점"]].filter(function(t){return t[0]==="timer"||conf.tabs[t[0]]!==0}).map(function(t){return '<button class="t" data-a="tab" data-t="'+t[0]+'">'+I(t[1],17)+t[2]+'</button>'}).join("")+'<button data-a="menu" class="ib" aria-label="메뉴" style="width:38px;flex:none">'+I("grid",22)+'</button>'}
-$("#y").onclick=function(e){var el=e.target.closest("[data-a]");
-  if(!e.target.closest("#mn")&&!(el&&el.dataset.a==="menu"))$("#mn").classList.remove("on");
-  if(!el){if(pop&&scr==="app"){pop=0;render()}return}
-  var a=el.dataset.a,v=el.dataset.v,id=el.dataset.id,sid=el.dataset.s;
-  if(a.slice(0,2)==="a-"){
-    if(a==="a-login")showAuth("login");else if(a==="a-reg")showAuth("reg1");else if(a==="a-back")showAuth("chooser");
-    else if(a==="a-do")doLogin();else if(a==="a-r1")doReg1();else if(a==="a-r2")doReg2();else if(a==="a-r1b")showAuth("reg1");
-    else if(a==="a-retry")enter();else if(a==="a-out")logout();return}
-  if(a==="to-refresh"){loadShop().then(teacherOrdersRender);return}
-  if(a==="teacher-gift-approve"||a==="teacher-gift-reject"){teacherSetGiftOrder(el.dataset.id,a==="teacher-gift-approve").catch(function(err){toast(err.message||"처리하지 못했어요")});return}
-  if(a==="shop-admin-back"){tab="timer";anim=1;render();return}
-  if(a.slice(0,2)==="m-"){admAct(a,el);return}
-  if(a.indexOf("shop-")===0){Promise.resolve(shopAct(a,el)).catch(function(err){console.error("상점 버튼 오류",err);toast(err&&err.message?err.message:"상점 기능을 실행하지 못했어요")});return}
-  if(a==="tab"){tab=el.dataset.t;tp=tab;anim=1;pop=0;addTo="";adv="";if(tab==="group"){gv="list";loadG(false,0)}if(tab==="shop")loadShop().then(render);render()}
-  else if(a==="menu")$("#mn").classList.toggle("on");
-  else if(a==="go"){$("#mn").classList.remove("on");tab=el.dataset.t;anim=1;if(tab==="shopadmin"&&me&&me.sid===SHOP_ADMIN)loadShop().then(render);else render();if(tab==="rank")loadG(false,0)}
-  else if(a==="back"){tab=tp;anim=1;render()}
-  else if(a==="pwpage"){pwErr="";pwBusy=0;tab="pwchange";anim=1;render()}
-  else if(a==="pwback"){tab="settings";anim=1;render()}
-  else if(a==="pw-save")changeMyPassword();
-  else if(a==="soon")toast("준비 중이에요");
-  else if(a==="lo")dlg("로그아웃","로그아웃할까요?",logout);
-  else if(a==="dd"){tab="settings";ed="dday";anim=1;render()}
-  else if(a==="row"){if(D.run&&D.run.s===sid)stopRun();else start(sid);lst=0;anim=1;render()}
-  else if(a==="tr"){var t0=ft(+id);start(t0.s,t0.id);lst=0;anim=1;render()}
-  else if(a==="pz"){pause();paint();tick();if(tab==="timer")render()}
-  else if(a==="swap"){lst=lst?0:1;anim=1;render()}
-  else if(a==="stopf"){stopRun();$("#sh").classList.remove("on");anim=1;render()}
-  else if(a==="fc")openSheet();
-  else if(a==="sclose")$("#sh").classList.remove("on");
-  else if(a==="day"){sel=el.dataset.k;addTo="";pop=0;anim=1;render()}
-  else if(a==="add"){addTo=addTo===sid?"":sid;DD={s:sid,st:0,du:0,rp:0};adv="";render()}
-  else if(a==="addok")addTask();
-  else if(a==="td"){var k=el.dataset.k;if(k==="s"){var ix=0;D.subj.forEach(function(s,j){if(s.id===DD.s)ix=j});DD.s=D.subj[(ix+1)%D.subj.length].id}else if(k==="st")DD.st=(DD.st+1)%START.length;else if(k==="du")DD.du=(DD.du+1)%DUR.length;else DD.rp=(DD.rp+1)%REP.length;render()}
-  else if(a==="tk"){pop=pop===+id?0:+id;render()}
-  else if(a==="pp"){var t=ft(+id);start(t.s,t.id);pop=0;tab="timer";tp="timer";lst=0;anim=1;render()}
-  else if(a==="st"){ft(+id).st=v;pop=0;save();render()}
-  else if(a==="del"){var did=+id;pop=0;dlg("To-Do 삭제","To-Do를 삭제하시겠습니까?<br>(측정한 시간은 삭제되지 않습니다)",function(){Object.keys(D.tasks).forEach(function(k){if(k===sel)D.tasks[k]=D.tasks[k].filter(function(t){return t.id!==did})});save();render()})}
-  else if(a==="dno")$("#dl").classList.remove("on");
-  else if(a==="dok"){$("#dl").classList.remove("on");var f=dok;dok=null;if(f)f()}
-  else if(a==="cd"){cs=el.dataset.k;render()}
-  else if(a==="cmp"){cm=cm.m?{y:cm.y,m:cm.m-1}:{y:cm.y-1,m:11};render()}
-  else if(a==="cmn"){cm=cm.m<11?{y:cm.y,m:cm.m+1}:{y:cm.y+1,m:0};render()}
-  else if(a==="cmt"){var n=new Date();cm={y:n.getFullYear(),m:n.getMonth()};cs=today();render()}
-  else if(a==="fab"){if(gv==="list"){gv="browse";anim=1;render();loadG(true,1)}else if(gv==="browse"){gv="create";anim=1;render()}}
-  else if(a==="rf"){pubT=0;loadG(true,gv==="browse")}
-  else if(a==="bt"){bt=v;render()}
-  else if(a==="fv"){fv=fv?0:1;render()}
-  else if(a==="bj"){var g=grps.filter(function(x){return x.id===id})[0];if(!g)return;if(D.groups.indexOf(g.id)>=0){gid=g.id;gv="detail";anim=1;render();loadG(false,0)}else dlg("그룹 참여",esc(g.name)+" 그룹에 참여할까요?",function(){joinG(g)})}
-  else if(a==="jcode"){var c=($("#jc").value||"").trim().toUpperCase();if(!c){toast("초대 코드를 입력해줘");return}var g2=grps.filter(function(x){return x.code===c})[0];if(!g2)toast("코드를 찾을 수 없어요");else if(D.groups.indexOf(g2.id)>=0)toast("이미 가입한 그룹이에요");else joinG(g2)}
-  else if(a==="cf"){cf[el.dataset.k]=+v;var nm=($("#gn")||{}).value,ds=($("#gdsc")||{}).value;render();if(nm)$("#gn").value=nm;if(ds)$("#gdsc").value=ds}
-  else if(a==="gd"){gid=id;gv="detail";gset=0;anim=1;render();loadG(false,0)}
-  else if(a==="gb"){gv="list";anim=1;render()}
-  else if(a==="gbr"){gv=gv==="create"?"browse":"list";gset=0;anim=1;render()}
-  else if(a==="gmk")mkGroup();
-  else if(a==="gs"){gset=gset?0:1;render()}
-  else if(a==="gsv")renameG();
-  else if(a==="gl"){var g3=gf(gid),own=g3.owner===me.sid;dlg(own?"그룹 삭제":"그룹 나가기","정말 "+(own?"삭제":"나가기")+"할까요?"+(own?"<br>멤버 모두에게서 그룹이 사라져요.":""),leaveG)}
-  else if(a==="gr"){rsc=gid;tp="group";tab="rank";anim=1;render()}
-  else if(a==="rs"){rsc=id;render()}
-  else if(a==="rp"){rper=el.dataset.p;render()}
-  else if(a==="ed-nick"){ed="nick";render()}
-  else if(a==="ed-msg"){ed="msg";render()}
-  else if(a==="ed-dday"){ed="dday";render()}
-  else if(a==="esv")saveEd();
-  else if(a==="ddsv"){var dv=$("#ddd").value;D.dday=dv?{t:($("#ddt").value||"").trim(),d:dv}:null;save();ed="";render()}
-  else if(a==="dddel"){D.dday=null;save();ed="";render()}
-  else if(a==="cos")buyCosmetic(el.dataset.kind,el.dataset.name,2);
-  else if(a==="se")subjDlg();
-  else if(a==="sc"){readSe();var s=se[+el.dataset.i],ix2=PAL.indexOf(s.c);s.c=PAL[(ix2+1)%PAL.length];drawSe()}
-  else if(a==="sx"){readSe();se.splice(+el.dataset.i,1);drawSe()}
-  else if(a==="sadd"){readSe();if(se.length>=15){toast("과목은 15개까지 만들 수 있어");return}se.push({id:"s"+Date.now().toString(36),n:"",c:PAL[se.length%PAL.length]});drawSe()}
-  else if(a==="ssv"){readSe();D.subj=se.filter(function(s){return s.n.trim()}).map(function(s){return{id:s.id,n:s.n.trim(),c:s.c}});if(D.run&&!D.subj.some(function(s){return s.id===D.run.s}))bank();save();pushPub();nsync();$("#dl").classList.remove("on");render();toast("과목을 저장했어요")}
-  else if(a==="reset")dlg("내 기록 초기화","공부 시간과 할 일을 모두 지울까요?<br>되돌릴 수 없어요.",resetMine)};
-$("#adm").addEventListener("click",function(e){var el=e.target.closest("[data-a]");if(!el)return;var a=el.dataset.a;if(a==="m-lo"){dlg("로그아웃","로그아웃할까요?",logout);return}if(a==="to-refresh"){loadShop().then(function(){if(scr==="teacherorders")teacherOrdersRender();else admRender()});return}if(a==="teacher-gift-approve"||a==="teacher-gift-reject"){teacherSetGiftOrder(el.dataset.id,a==="teacher-gift-approve").catch(function(err){toast(err.message||"처리하지 못했어요")});return}if(a.slice(0,2)==="m-"){admAct(a,el);return}});
-$("#y").onkeydown=function(e){if(e.key!=="Enter")return;var id=e.target.id;
-  if(id==="ai")addTask();else if(id==="gn")mkGroup();else if(id==="gr")renameG();else if(id==="ei")saveEd();
-  else if(id==="lsid"||id==="lpw")doLogin();else if(id==="rname"||id==="rsid")doReg1();else if(id==="rpw"||id==="rpw2")doReg2();else if(id==="pw-current"||id==="pw-new"||id==="pw-confirm")changeMyPassword();else if(id==="jc")$("[data-a=jcode]").click()};
-document.addEventListener("visibilitychange",function(){if(!document.hidden&&scr==="app"){fixStale();render();if(window.nativePull)window.nativePull()}});
-window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused){D.run.ping=Date.now()}save();flush()}});
-setInterval(tick,250);
-setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
-/* ───────── 시작 ───────── */
-showAuth("load");
-fbAuth.onAuthStateChanged(async function(user){
-  if(!user){if(!me&&scr==="load")showAuth("chooser");return}
-  if(me&&me.sid===String(user.email||"").split("@")[0])return;
-  try{
-    var sid=String(user.email||"").split("@")[0],acc=await getAcc(sid);
-    if(!ROSTER[sid]||!acc||acc.uid!==user.uid||acc.studentId!==sid){await fbAuth.signOut();me=null;showAuth("chooser","계정 정보를 확인할 수 없어요. 관리자에게 문의해 주세요.");return}
-    me={sid:sid,name:acc.name||ROSTER[sid]};
-    try{localStorage.setItem("ypMe",JSON.stringify(me))}catch(e){}
-    await enter();
-  }catch(e){showAuth("load","로그인 정보를 복원하지 못했어요. 네트워크를 확인해 주세요.")}
-});
-})();
-</script>
-</body>
-</html>
+  me={sid:sid,name:nm};try{localStorage.s
