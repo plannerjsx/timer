@@ -491,7 +491,7 @@ function doLocal(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||
 async function doReg1(){var nm=($("#rname").value||"").trim(),sid=($("#rsid").value||"").trim();reg={name:nm,sid:sid};
   if(!nm||!sid){aerr="이름과 학번을 모두 입력해줘.";$("#auth").innerHTML=authHTML();return}
   if(!ROSTER[sid]||ROSTER[sid]!==nm){aerr="저장된 정보가 없습니다. 이름과 학번을 다시 확인해줘.";$("#auth").innerHTML=authHTML();return}
-  if(sid===ADMIN||sid===SHOP_ADMIN){aerr="관리자 계정은 직접 등록할 수 없어요. Firebase에서 관리자가 계정을 먼저 만들어야 해.";$("#auth").innerHTML=authHTML();return}
+  if(sid===SHOP_ADMIN){aerr="상점 관리자 계정은 직접 등록할 수 없어요.";$("#auth").innerHTML=authHTML();return}
   scr="reg2";aerr="";$("#auth").innerHTML=authHTML()}
 
 async function doReg2(){var pw=$("#rpw").value,pw2=$("#rpw2").value;if(!pw||pw.length<6){aerr="비밀번호는 6자 이상으로 입력해줘.";$("#auth").innerHTML=authHTML();return}
