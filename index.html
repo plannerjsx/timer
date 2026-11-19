@@ -261,12 +261,28 @@ function pe(g,per,sj,rd){sj=String(sj||"").trim();return g.members.map(function(
     }
     return (sj?subjectSeconds:(d[k]||0))+(k===today()&&on?liveOf(x):0)
   },rd):0,s:on&&fresh(r)&&!r.paused?1:0,me:0}})}
-async function loadPubs(force){if(!force&&Date.now()-pubT<60000)return;var l=await dlist("yp-pub:");if(l){pubs={};l.forEach(function(x){pubs[x.sid]=x});pubErr=0;pubT=Date.now()}else pubErr=1}
+async function loadPubs(force){
+  if(!force&&Date.now()-pubT<60000)return;
+  var l=await dlist("yp-pub:"),next={},failed=0;
+  // 먼저 컬렉션 조회를 사용하고, 누락된 학생 문서는 학번으로 직접 조회한다.
+  // Firestore 쿼리 권한/인덱스 문제로 목록 조회가 빈 배열이어도 개인 기록을 복구해 표시한다.
+  if(Array.isArray(l))l.forEach(function(x){if(x&&x.sid)next[x.sid]=x});
+  var ids=Object.keys(ROSTER).filter(isStu);
+  var missing=ids.filter(function(sid){return !next[sid]});
+  if(missing.length){
+    var docs=await Promise.all(missing.map(function(sid){return dget("yp-pub:"+sid)}));
+    docs.forEach(function(x,i){if(x&&typeof x==="object")next[missing[i]]=x;else if(x===undefined)failed=1});
+  }
+  // 일시적인 읽기 실패가 있으면 직전 정상 캐시를 보존한다.
+  Object.keys(next).forEach(function(sid){pubs[sid]=next[sid]});
+  ids.forEach(function(sid){if(next[sid]===undefined&&Array.isArray(l)&&l.some(function(x){return x&&x.sid===sid}))return;if(next[sid]===undefined&&failed===0)delete pubs[sid]});
+  pubErr=failed;pubT=Date.now();
+}
 async function loadMy(){var ids=D.groups.slice(),res=await Promise.all(ids.map(function(i){return dget("yp-group:"+i)})),out=[],keep=[];
   res.forEach(function(g,j){if(g){out.push(g);keep.push(ids[j])}else if(g===null){}else{keep.push(ids[j])}});
   myG=out;if(keep.length!==D.groups.length){D.groups=keep;save()}}
 async function loadBrowse(){var l=await dlist("yp-group:");if(l)grps=l}
-async function loadG(force,browse){if(gl)return;gl=1;render();try{await Promise.all([loadPubs(force),loadMy(),browse?loadBrowse():0])}catch(e){}gl=0;render()}
+async function loadG(force,browse){if(gl)return;gl=1;render();try{await Promise.all([loadMy(),browse?loadBrowse():0]);await loadPubs(force)}catch(e){pubErr=1}gl=0;render()}
 function bgPubs(){if(bgL||Date.now()-pubT<60000)return;bgL=1;loadPubs(true).then(function(){bgL=0;if(tab==="timer"&&D.run&&!lst)render()},function(){bgL=0})}
 /* ───────── 화면 조각 ───────── */
 function DK(c,s){return '<svg width="'+s+'" height="'+Math.round(s*.85)+'" viewBox="0 0 48 42" fill="none" stroke="'+c+'" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M4 31h40M8 31v8M40 31v8M26 31v-7h14v7M33 24v-9M29 15h8"/></svg>'}
