@@ -168,7 +168,7 @@ async function dlist(prefix){
 }
 /* ───────── 상태 ───────── */
 var $=function(s){return document.querySelector(s)},p2=function(x){return String(x).padStart(2,"0")};
-var agid="",cmdCheckAt=0;var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsub="",rdate="",rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null,pwErr="",pwBusy=0;
+var agid="",cmdCheckAt=0;var me=null,D=null,scr="chooser",tab="timer",tp="timer",lst=0,anim=1,sel="",cs="",cm={y:0,m:0},addTo="",pop=0,gv="list",gid="",gset=0,rsc="class",rper="d",rsub="",rdate="",rpers=0,pubErr=0,rsig="",bt="new",fv=0,adv="",ed="",dok=null,tmr=0,dirty=0,saveT=0,gl=0,bgL=0,pubs={},pubT=0,myG=[],grps=[],busy=0,ldr={sid:"",pw:""},reg={name:"",sid:""},aerr="",se=null,pwErr="",pwBusy=0;
 var DD={s:"",st:0,du:0,rp:0};
 var ADMIN="10800",SHOP_ADMIN="10805",TEMP="10832",conf={tabs:{todo:1,cal:1,group:1,rank:1},lock:0,notice:""};
 var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],pointRouletteRestored:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:31000,stock:1}],orders:[],giftRoulette:[{id:"g1000",name:"기프트카드 1,000원",price:50,giftChance:0.1,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:100,giftChance:0.09,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:200,giftChance:0.01,stock:1}],giftPointRewards:[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5},{v:60,p:0}]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,giftWheelRot={},shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
@@ -251,7 +251,7 @@ function pe(g,per,sj,rd){sj=sj||"";return g.members.map(function(sid){
   if(sid===me.sid)return{sid:sid,n:D.prof.nick||me.name,t:spanP(per,function(k){return myDay(k,sj)},rd),s:D.run&&!D.run.paused&&(!sj||SB(D.run.s).n===sj)?1:0,me:1};
   var x=pubs[sid]||null,d=x?x.days||{}:{},sd=x?x.sd||{}:{},r=x&&x.run,on=!!(r&&(!sj||r.n===sj));
   return{sid:sid,n:(x&&x.nick)||ROSTER[sid]||sid,t:x?spanP(per,function(k){return (sj?((sd[k]||{})[sj]||0):(d[k]||0))+(k===today()&&on?liveOf(x):0)},rd):0,s:on&&fresh(r)&&!r.paused?1:0,me:0}})}
-async function loadPubs(force){if(!force&&Date.now()-pubT<60000)return;var l=await dlist("yp-pub:");if(l){pubs={};l.forEach(function(x){pubs[x.sid]=x})}pubT=Date.now()}
+async function loadPubs(force){if(!force&&Date.now()-pubT<60000)return;var l=await dlist("yp-pub:");if(l){pubs={};l.forEach(function(x){pubs[x.sid]=x});pubErr=0;pubT=Date.now()}else pubErr=1}
 async function loadMy(){var ids=D.groups.slice(),res=await Promise.all(ids.map(function(i){return dget("yp-group:"+i)})),out=[],keep=[];
   res.forEach(function(g,j){if(g){out.push(g);keep.push(ids[j])}else if(g===null){}else{keep.push(ids[j])}});
   myG=out;if(keep.length!==D.groups.length){D.groups=keep;save()}}
@@ -329,15 +329,17 @@ function grp(){var h='<div class="'+an()+'" style="padding:14px 16px 90px">',g;
     h+=(g.fx?'':'<div style="display:flex;justify-content:space-between;align-items:center;background:#22252d;border-radius:12px;padding:10px 14px;margin:10px 0 12px;font-size:13px"><span style="color:#aaa">초대 코드</span><b style="letter-spacing:2px;font-weight:500">'+esc(g.code)+'</b></div>'+'<div style="font-size:13px;color:#aaa;margin-bottom:10px">목표 '+g.goal+'시간 · 정원 '+g.cap+'명 · '+(g.pub?'공개':'비공개')+'</div>')+(gl?load():'')+grid(g,0,1)+'<button data-a="gr" class="btn">이 그룹 랭킹 보기</button>'}
   return h+'</div>'}
 function gapTxt(a,mi){return mi===0?(a[1]?T(a[0].t-a[1].t)+" 앞서요":""):T(a[0].t-a[mi].t)}
-function rSubjects(){var out=[];function add(n){if(n&&n!=="(삭제된 과목)"&&out.indexOf(n)<0)out.push(n)}
-  D.subj.forEach(function(s){add(s.n)});Object.keys(pubs).forEach(function(k){(pubs[k].sn||[]).forEach(add)});return out}
+function persBtn(a,on){return '<button data-a="'+a+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:99px;font-size:12px;border:.5px solid '+(on?A:'#3a3f4a')+';color:'+(on?A:'#9aa0ab')+';background:'+(on?'rgba(240,123,58,.12)':'none')+'">'+(on?I("check",12):'')+'개인 과목 보이기</button>'}
+function rSubjects(){var all=[];function add(n){if(n&&n!=="(삭제된 과목)"&&all.indexOf(n)<0)all.push(n)}
+  D.subj.forEach(function(s){add(s.n)});Object.keys(pubs).forEach(function(k){(pubs[k].sn||[]).forEach(add)});
+  var out=DEFSUBJ.filter(function(n){return all.indexOf(n)>=0});if(rpers)all.forEach(function(n){if(DEFSUBJ.indexOf(n)<0)out.push(n)});return out}
 function rMin(){var d=new Date();d.setDate(d.getDate()-39);return key(d)}
 function rdateBar(){var td=today(),d=rdate||td;return '<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><button data-a="rdn" data-v="-1" class="ib" aria-label="전날">'+I("cl")+'</button><input id="rdi" type="date" class="in" value="'+d+'" min="'+rMin()+'" max="'+td+'" style="text-align:center;height:38px"><button data-a="rdn" data-v="1" class="ib" aria-label="다음날">'+I("cr")+'</button></div>'}
-function rsubBar(){return '<div style="display:flex;gap:6px;overflow-x:auto;padding:10px 0 2px">'+[""].concat(rSubjects()).map(function(n){var on=rsub===n;return '<button data-a="rsj" data-v="'+esc(n)+'" style="flex:none;padding:5px 11px;border-radius:99px;font-size:12px;white-space:nowrap;border:.5px solid '+(on?A:'#3a3f4a')+';color:'+(on?A:'#9aa0ab')+';background:'+(on?'rgba(240,123,58,.12)':'none')+'">'+(n?esc(n):'전체 과목')+'</button>'}).join("")+'</div>'}
+function rsubBar(){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 0"><span class="mut">과목</span>'+persBtn("rpers",rpers)+'</div><div style="display:flex;gap:6px;overflow-x:auto;padding:8px 0 2px">'+[""].concat(rSubjects()).map(function(n){var on=rsub===n;return '<button data-a="rsj" data-v="'+esc(n)+'" style="flex:none;padding:5px 11px;border-radius:99px;font-size:12px;white-space:nowrap;border:.5px solid '+(on?A:'#3a3f4a')+';color:'+(on?A:'#9aa0ab')+';background:'+(on?'rgba(240,123,58,.12)':'none')+'">'+(n?esc(n):'전체 과목')+'</button>'}).join("")+'</div>'}
 function rkLabel(){var p=rper==="d"?"오늘":rper==="w"?"이번 주":rper==="m"?"이번 달":(rdate||today());return p+' · '+(rsub||'전체 과목')}
 function rank(){var g=gf(rsc),a=pe(g,rper,rsub,rdate).sort(function(x,y){return y.t-x.t}),mi=0;a.forEach(function(x,j){if(x.me)mi=j});rsig=a.map(function(x){return x.sid}).join();
   var h='<div class="'+an()+'" style="padding:10px 16px 30px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="display:flex;align-items:center"><button data-a="back" class="ib" aria-label="뒤로">'+I("cl")+'</button><span style="font-size:18px">랭킹</span></span><button data-a="rf" class="ib" aria-label="새로고침">'+I("refresh",18)+'</button></div><div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px">'+allG().map(function(x){var on=x.id===g.id;return '<button data-a="rs" data-id="'+x.id+'" style="flex:none;padding:6px 12px;border-radius:99px;font-size:13px;white-space:nowrap;transition:background .25s;background:'+(on?A:'#22252d')+';color:'+(on?'#111':'#bbb')+'">'+esc(x.name)+'</button>'}).join("")+'</div>'
-  +'<div style="display:flex;background:#22252d;border-radius:10px;padding:3px;margin-top:8px">'+[["d","일간"],["w","주간"],["m","월간"],["p","날짜"]].map(function(v){var on=rper===v[0];return '<button data-a="rp" data-p="'+v[0]+'" style="flex:1;height:32px;border-radius:8px;font-size:13px;transition:background .25s;background:'+(on?'#3a3f4a':'none')+';color:'+(on?'#ececec':'#8c8c8c')+'">'+v[1]+'</button>'}).join("")+'</div>'+(rper==="p"?rdateBar():'')+rsubBar()+nb()+(gl?load():'')
+  +'<div style="display:flex;background:#22252d;border-radius:10px;padding:3px;margin-top:8px">'+[["d","일간"],["w","주간"],["m","월간"],["p","날짜"]].map(function(v){var on=rper===v[0];return '<button data-a="rp" data-p="'+v[0]+'" style="flex:1;height:32px;border-radius:8px;font-size:13px;transition:background .25s;background:'+(on?'#3a3f4a':'none')+';color:'+(on?'#ececec':'#8c8c8c')+'">'+v[1]+'</button>'}).join("")+'</div>'+(rper==="p"?rdateBar():'')+rsubBar()+nb()+(gl?load():'')+(pubErr&&!gl?'<div class="mut" style="background:#22252d;border-radius:10px;padding:8px 12px;margin:8px 0">랭킹 기록을 불러오지 못했어요. 오른쪽 위 새로고침을 눌러줘.</div>':'')+(!gl&&!pubErr&&a.every(function(x){return !x.t})?'<div class="mut" style="background:#22252d;border-radius:10px;padding:8px 12px;margin:8px 0">이 기간에는 아직 기록이 없어요.</div>':'')
   +'<div class="mut" style="margin:6px 2px 0">'+esc(rkLabel())+'</div>'
   +'<div class="card" style="margin:8px 0 12px;display:flex;justify-content:space-between;align-items:center"><div><div class="mut">내 순위</div><div style="font-size:30px;font-weight:500;color:'+A+'">'+(mi+1)+'위 <span style="font-size:14px;color:#8c8c8c">/ '+a.length+'명</span></div></div><div style="text-align:right"><div class="mut">'+(mi===0?'지금 1위예요':'1위와 차이')+'</div><div id="rgap" style="font-size:16px;font-variant-numeric:tabular-nums">'+gapTxt(a,mi)+'</div></div></div>';
   a.forEach(function(x,j){var med=["#E8B93C","#B8BEC9","#C98A5B"][j];h+='<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:12px;margin-top:4px;'+(x.me?'background:rgba(240,123,58,.14)':'')+'"><span style="width:26px;height:26px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:13px;'+(med?'background:'+med+';color:#111;font-weight:500':'color:#8c8c8c')+'">'+(j+1)+'</span><span style="flex:1;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.n)+(x.s?' <i style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#69DB7C;margin-left:4px"></i>':'')+'</span><span class="tm"'+(x.me?' id="rme"':'')+'>'+T(x.t)+'</span></div>'});
@@ -768,7 +770,7 @@ async function shopAct(a,el){if(a==='shop-roulette')return shopRoulette(Number(e
  shopCfg=c;toast(await shopSave()?'기프트카드 룰렛 설정을 저장했어요':'저장 실패');return
 }if(a==='shop-save-prices'){c.snack.price=Math.max(0,Number($('#snackprice').value)||0);c.gifts.forEach(function(g){g.price=Math.max(0,Number($('#price-'+g.id).value)||0)});shopCfg=c;toast(await shopSave()?'가격을 저장했어요':'저장 실패');return}if(a==='shop-adjust'){var sid=($('#point-sid').value||'').trim(),delta=Number($('#point-delta').value);if(!ROSTER[sid]||sid==='10800'||sid==='10805'||!Number.isFinite(delta)||!delta){toast('학번과 변경 포인트를 확인해 주세요');return}try{var ref=mainDb.collection(COL).doc('yp-data:'+sid);await mainDb.runTransaction(async function(tx){var ds=await tx.get(ref),u=ds.exists?JSON.parse(ds.data().value||'{}'):newD();u.points=Math.max(0,(Number(u.points)||0)+delta);tx.set(ref,{value:JSON.stringify(u),updatedAt:Date.now()})});toast('학생 포인트를 조정했어요')}catch(e){toast('포인트 조정 실패')}return}}}
 /* ───────── 10832 임시 관리자 ───────── */
-var xv="time",xm="subj",xdate="",xsj="",xsid="",xAll={},xPend={},xVC={},xl=0,xAudit=[],xBusy=0;
+var xv="time",xm="subj",xdate="",xsj="",xsid="",xAll={},xErr={},xPend={},xVC={},xl=0,xAudit=[],xBusy=0,xpers=0;
 function isStu(i){return i!==ADMIN&&i!==TEMP}
 function xIds(){return Object.keys(ROSTER).filter(isStu)}
 function uid(){return "e"+Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
@@ -785,53 +787,68 @@ function applyOps(d,ops){var n=0;if(!Array.isArray(d.ao))d.ao=[];
 function applyAdminOps(ops){if(!D)return 0;var hasTime=(ops||[]).some(function(o){return o&&o.t==="time"}),n=applyOps(D,ops);
   if(n){if(hasTime&&typeof D.pointBlocks==="number")D.pointBlocks=Math.floor(totalStudySeconds()/1800);persist()}
   return n}
-function xView(sid){if(xVC[sid])return xVC[sid];var d=xAll[sid]?JSON.parse(JSON.stringify(xAll[sid])):newD();if(!Array.isArray(d.subj)||!d.subj.length)d.subj=newD().subj;if(!d.days)d.days={};applyOps(d,xPend[sid]||[]);return xVC[sid]=d}
+function xFromPub(sid){var x=pubs[sid];if(!x)return null;var d=newD(),names=(x.sn&&x.sn.length)?x.sn:DEFSUBJ;d.subj=names.map(function(n,i){return{id:"~"+n,n:n,c:PAL[i%PAL.length]}});d.days={};
+  Object.keys(x.sd||{}).forEach(function(k){var m={};Object.keys(x.sd[k]).forEach(function(n){m["~"+n]=x.sd[k][n]});d.days[k]=m});d.prof={nick:x.nick||"",msg:x.msg||""};d.pk=1;return d}
+function xView(sid){if(xVC[sid])return xVC[sid];var d;if(xAll[sid])d=JSON.parse(JSON.stringify(xAll[sid]));else if(xErr[sid])d=xFromPub(sid)||Object.assign(newD(),{bad:1});else d=newD();if(!Array.isArray(d.subj)||!d.subj.length)d.subj=newD().subj;if(!d.days)d.days={};applyOps(d,xPend[sid]||[]);return xVC[sid]=d}
 function xGet(sid,date,name){var v=xView(sid),s=null;(v.subj||[]).forEach(function(x){if(!s&&x.n===name)s=x});if(!s)return{s:"",sec:0};return{s:s.id,sec:Number(((v.days||{})[date]||{})[s.id])||0}}
 function xNames(){var out=[];xIds().forEach(function(i){(xView(i).subj||[]).forEach(function(s){if(s.n&&out.indexOf(s.n)<0)out.push(s.n)})});return out}
+function xShown(){var all=xNames(),out=DEFSUBJ.filter(function(n){return all.indexOf(n)>=0});if(xpers)all.forEach(function(n){if(DEFSUBJ.indexOf(n)<0)out.push(n)});return out}
 function xPendN(sid){return(xPend[sid]||[]).filter(function(o){return(xAll[sid]&&xAll[sid].ao||[]).indexOf(o.id)<0}).length}
 async function xSend(sid,ops){var ex=await dget("yp-admincmd:"+sid);if(ex===undefined)throw Error("연결 실패");
   var c;if(ex&&ex.action==="edit"){c={action:"edit",ops:(ex.ops||[]).concat(ops),at:Date.now()};if(ex.then)c.then=ex.then}
   else{c={action:"edit",ops:ops,at:Date.now()};if(ex&&ex.action)c.then=ex.action}
   var ok=await dset("yp-admincmd:"+sid,c);if(!ok)throw Error("전송 실패");return c}
-async function xPubUpdate(sid){var d=xView(sid),old=await dget("yp-pub:"+sid),p=buildPub(sid,d,old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}await dset("yp-pub:"+sid,p)}
+async function xPubUpdate(sid,ops){var old=await dget("yp-pub:"+sid);if(old===undefined)return;
+  if(xAll[sid]){var p=buildPub(sid,xView(sid),old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}await dset("yp-pub:"+sid,p);return}
+  if(!old)return;old.days=old.days||{};old.sd=old.sd||{};
+  (ops||[]).forEach(function(o){if(o.t!=="time")return;if(!old.sd[o.date]&&Number(old.days[o.date])>0)return;var m=old.sd[o.date]||{},prev=Number(m[o.n])||0,sec=Math.round(o.sec);
+    if(sec>0)m[o.n]=sec;else delete m[o.n];if(Object.keys(m).length)old.sd[o.date]=m;else delete old.sd[o.date];
+    var tot=Math.max(0,(Number(old.days[o.date])||0)-prev+sec);if(tot)old.days[o.date]=tot;else delete old.days[o.date]});
+  old.upd=Date.now();await dset("yp-pub:"+sid,old)}
+function xFixAll(){var ids=Object.keys(xAll);if(!ids.length){toast("읽어온 학생 기록이 없어서 만들 수 없어요");return}
+  dlg("랭킹 데이터 다시 만들기",ids.length+"명의 실제 기록으로 랭킹용 데이터를 다시 만들어요.<br>랭킹이 비어 보이거나 과목이 빠질 때 눌러요.",async function(){xBusy=1;toast("만드는 중...");var n=0;
+    await Promise.all(ids.map(async function(sid){try{var old=await dget("yp-pub:"+sid);if(old===undefined)return;var p=buildPub(sid,xView(sid),old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}if(await dset("yp-pub:"+sid,p))n++}catch(e){}}));
+    xBusy=0;try{await loadPubs(true)}catch(e){}toast(n+"명의 랭킹 데이터를 만들었어요");xrender()})}
 async function xLog(list){if(!list.length)return;var cur=await dget("yp-audit:log");if(cur===undefined)return;var items=list.concat((cur&&cur.items)||[]).slice(0,300);if(await dset("yp-audit:log",{items:items}))xAudit=items}
 async function xCommit(groups,logs){if(xBusy)return;xBusy=1;var sids=Object.keys(groups),fail=[],okS={};toast("저장하는 중...");
-  await Promise.all(sids.map(async function(sid){try{var c=await xSend(sid,groups[sid]);xPend[sid]=c.ops;okS[sid]=1;delete xVC[sid]}catch(e){fail.push(ROSTER[sid]||sid);return}try{await xPubUpdate(sid)}catch(e2){}}));
+  await Promise.all(sids.map(async function(sid){try{var c=await xSend(sid,groups[sid]);xPend[sid]=c.ops;okS[sid]=1;delete xVC[sid]}catch(e){fail.push(ROSTER[sid]||sid);return}try{await xPubUpdate(sid,groups[sid])}catch(e2){}}));
   await xLog(logs.filter(function(l){return okS[l.sid]}));
   xBusy=0;xVC={};toast(fail.length?"일부 실패: "+fail.join(", "):Object.keys(okS).length+"명 저장했어요");xrender()}
+async function xFetch(id){try{var r=await fx(dpath(id));if(r.status===404)return{doc:null};if(!r.ok)return{err:r.status};return{doc:parseDoc(await r.json())}}catch(e){return{err:"network"}}}
 async function xLoad(force){if(xl)return;xl=1;xrender();
-  try{var ids=xIds(),r=await Promise.all([Promise.all(ids.map(function(i){return dget("yp-data:"+i)})),Promise.all(ids.map(function(i){return dget("yp-admincmd:"+i)})),loadPubs(force),dget("yp-audit:log")]);
-    xAll={};xPend={};r[0].forEach(function(d,i){if(d&&typeof d==="object")xAll[ids[i]]=d});r[1].forEach(function(c,i){if(c&&c.action==="edit"&&c.ops)xPend[ids[i]]=c.ops});xAudit=(r[3]&&r[3].items)||[]}catch(e){console.error("10832 데이터 로드 실패",e)}
+  try{var ids=xIds(),r=await Promise.all([Promise.all(ids.map(function(i){return xFetch("yp-data:"+i)})),Promise.all(ids.map(function(i){return dget("yp-admincmd:"+i)})),loadPubs(force),dget("yp-audit:log")]);
+    xAll={};xErr={};xPend={};r[0].forEach(function(o,i){if(o.err)xErr[ids[i]]=o.err;else if(o.doc&&typeof o.doc==="object")xAll[ids[i]]=o.doc});r[1].forEach(function(c,i){if(c&&c.action==="edit"&&c.ops)xPend[ids[i]]=c.ops});xAudit=(r[3]&&r[3].items)||[]}catch(e){console.error("10832 데이터 로드 실패",e)}
   xl=0;xrender()}
 function enterTemp(){scr="tmp";xv="time";xm="subj";xdate=today();xsj="";xsid="";$("#auth").style.display="none";$("#app").classList.remove("on");$("#adm").classList.add("on");xBuild();xrender();xLoad(true)}
 function xBuild(){$("#adm").innerHTML='<div class="yt" id="xt"></div><div class="yb" id="xb"></div>';
   $("#xt").innerHTML=[["time","시간 수정"],["pts","포인트"],["log","변경 기록"]].map(function(t){return '<button class="t" data-a="t-v" data-v="'+t[0]+'">'+t[1]+'</button>'}).join("")+'<button data-a="t-rf" class="ib" aria-label="새로고침" style="flex:none">'+I("refresh",18)+'</button><button data-a="m-lo" class="chip" style="flex:none;padding:8px 10px">로그아웃</button>'}
 function xrender(){if(scr!=="tmp")return;var b=$("#xb");if(!b)return;xVC={};var st=b.scrollTop;
-  b.innerHTML=(xl?load():'')+(xv==="time"?xTimeV():xv==="pts"?xPtsV():xLogV());b.scrollTop=st;
+  var ne=Object.keys(xErr).length;b.innerHTML=(xl?load():'')+(ne?'<div class="card" style="margin:12px 14px 0;border-color:#FF6259"><div style="font-size:14px;margin-bottom:4px">'+ne+'명의 기록을 읽지 못했어요 <span class="mut">(오류 '+esc(String(xErr[Object.keys(xErr)[0]]))+')</span></div><div class="mut" style="line-height:1.6">Firebase 보안 규칙에서 10832 계정이 학생 기록을 읽을 수 있어야 정확해요. 지금은 랭킹용 공개 기록으로 대신 보여 주고 있어서 포인트는 알 수 없고 개인 과목은 빠질 수 있어요.</div></div>':'')+(xv==="time"?xTimeV():xv==="pts"?xPtsV():xLogV());b.scrollTop=st;
   document.querySelectorAll("#xt button.t").forEach(function(x){x.classList.toggle("on",x.dataset.v===xv)})}
 function xHead(t,s){return '<div style="font-size:19px;font-weight:600;margin-bottom:4px">'+t+'</div><div class="mut" style="margin-bottom:10px;line-height:1.6">'+s+'</div>'}
 function xSave(a,l){return '<div style="position:sticky;bottom:0;padding:12px 0 6px;background:linear-gradient(180deg,rgba(20,22,27,0),#14161b 40%)"><button data-a="'+a+'" class="btn">'+l+'</button></div>'}
 function xDateBar(){var td=today();return '<div class="card" style="display:flex;align-items:center;gap:6px;padding:10px;margin-bottom:0"><button data-a="t-dn" data-v="-1" class="ib" aria-label="전날">'+I("cl")+'</button><input id="xdi" type="date" class="in" value="'+esc(xdate)+'" max="'+td+'" style="text-align:center;height:38px"><button data-a="t-dn" data-v="1" class="ib" aria-label="다음날">'+I("cr")+'</button><button data-a="t-dt" class="chip" style="flex:none">오늘</button></div>'}
 function xBulkBar(unit){return '<div class="card" style="padding:10px 12px"><div class="mut" style="margin-bottom:6px">전체 일괄 (칸만 미리 채워지고, 저장을 눌러야 반영돼요)</div><div style="display:flex;gap:6px;align-items:center"><input id="xbn" class="in" type="number" min="0" step="any" placeholder="'+unit+'" style="height:38px;width:86px"><button data-a="t-bulk" data-v="set" class="chip">모두 =</button><button data-a="t-bulk" data-v="add" class="chip">모두 +</button><button data-a="t-bulk" data-v="sub" class="chip">모두 −</button></div></div>'}
 function xRow(l,sub,pend,inner){return '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;background:#1b1e25;margin-bottom:6px"><div style="flex:1;min-width:0"><div style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+l+(pend?' <span style="color:#E8B93C;font-size:11px">적용 대기 '+pend+'</span>':'')+'</div><div class="tm" style="font-size:12px;color:#8c8c8c">'+sub+'</div></div>'+inner+'</div>'}
-function xInp(id,ph,unit){return '<input id="xi-'+id+'" class="in" type="number" inputmode="decimal" min="0" step="any" placeholder="'+ph+'" style="width:92px;height:38px;text-align:right"><span class="mut" style="width:16px">'+unit+'</span>'}
-function xTimeV(){var h='<div class="sc" style="padding:12px 14px 30px">'+xHead('시간 수정','날짜와 과목을 고르고 분 단위로 입력하세요. 비워 둔 칸은 그대로예요. 학생 앱이 열려 있으면 몇 초 안에, 닫혀 있으면 다음에 열 때 반영돼요. 시간 수정은 포인트에 영향을 주지 않아요.')+xDateBar()+'<div style="display:flex;background:#22252d;border-radius:10px;padding:3px;margin:10px 0">'+[["subj","과목별 · 전체 학생"],["stu","학생별 · 전체 과목"]].map(function(o){var on=xm===o[0];return '<button data-a="t-m" data-v="'+o[0]+'" style="flex:1;height:34px;border-radius:8px;font-size:13px;background:'+(on?'#3a3f4a':'none')+';color:'+(on?'#ececec':'#8c8c8c')+'">'+o[1]+'</button>'}).join("")+'</div>';
+function xInp(id,ph,unit,neg){return '<input id="xi-'+id+'" class="in" type="number" inputmode="decimal"'+(neg?'':' min="0"')+' step="any" placeholder="'+ph+'" style="width:92px;height:38px;text-align:right"><span class="mut" style="width:16px">'+unit+'</span>'}
+function xTimeV(){var h='<div class="sc" style="padding:12px 14px 30px">'+xHead('시간 수정','날짜와 과목을 고르고 분 단위로 입력하세요. 비워 둔 칸은 그대로예요. 학생 앱이 열려 있으면 몇 초 안에, 닫혀 있으면 다음에 열 때 반영돼요. 시간 수정은 포인트에 영향을 주지 않아요.')+'<button data-a="t-fix" class="chip" style="margin-bottom:10px">랭킹 데이터 다시 만들기</button>'+xDateBar()+'<div style="display:flex;background:#22252d;border-radius:10px;padding:3px;margin:10px 0">'+[["subj","과목별 · 전체 학생"],["stu","학생별 · 전체 과목"]].map(function(o){var on=xm===o[0];return '<button data-a="t-m" data-v="'+o[0]+'" style="flex:1;height:34px;border-radius:8px;font-size:13px;background:'+(on?'#3a3f4a':'none')+';color:'+(on?'#ececec':'#8c8c8c')+'">'+o[1]+'</button>'}).join("")+'</div>';
   return h+(xm==="subj"?xTimeSubj():xTimeStu())+xSave("t-save","시간 저장")+'</div>'}
-function xTimeSubj(){var names=xNames(),h;if(!xsj||names.indexOf(xsj)<0)xsj=names[0]||"";
-  h='<div style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px">'+names.map(function(n){var on=n===xsj;return '<button data-a="t-sj" data-v="'+esc(n)+'" style="flex:none;padding:6px 12px;border-radius:99px;font-size:13px;white-space:nowrap;background:'+(on?A:'#22252d')+';color:'+(on?'#111':'#bbb')+'">'+esc(n)+'</button>'}).join("")+'</div>'+xBulkBar("분");
-  var rows=xIds().map(function(sid){var g=xGet(sid,xdate,xsj);return{sid:sid,n:ROSTER[sid],s:g.s,sec:g.sec}}).sort(function(a,b){return b.sec-a.sec||(a.n<b.n?-1:1)});
+function xTimeSubj(){var names=xShown(),h;if(!xsj||names.indexOf(xsj)<0)xsj=names[0]||"";
+  h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="mut">과목</span>'+persBtn("t-pers",xpers)+'</div><div style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px">'+names.map(function(n){var on=n===xsj;return '<button data-a="t-sj" data-v="'+esc(n)+'" style="flex:none;padding:6px 12px;border-radius:99px;font-size:13px;white-space:nowrap;background:'+(on?A:'#22252d')+';color:'+(on?'#111':'#bbb')+'">'+esc(n)+'</button>'}).join("")+'</div>'+xBulkBar("분");
+  var rows=xIds().map(function(sid){var g=xGet(sid,xdate,xsj);return{sid:sid,n:ROSTER[sid],s:g.s,sec:g.sec,bad:xView(sid).bad}}).sort(function(a,b){return b.sec-a.sec||(a.n<b.n?-1:1)});
   if(!xl&&!Object.keys(xAll).length)h+='<div class="mut" style="text-align:center;padding:20px 0">불러온 학생 기록이 없어요. 새로고침을 눌러 보세요.</div>';
-  return h+rows.map(function(r){return xRow(esc(r.n)+' <span class="mut">'+r.sid+'</span>',T(r.sec),xPendN(r.sid),r.s?xInp(r.sid,String(+(r.sec/60).toFixed(1)),"분"):'<span class="mut">과목 없음</span>')}).join("")}
+  return h+rows.map(function(r){return xRow(esc(r.n)+' <span class="mut">'+r.sid+'</span>',T(r.sec),xPendN(r.sid),r.bad?'<span class="mut">읽기 실패</span>':r.s?xInp(r.sid,String(+(r.sec/60).toFixed(1)),"분"):'<span class="mut">과목 없음</span>')}).join("")}
 function xTimeStu(){var ids=xIds(),h,v,o,tot=0;if(!xsid||ids.indexOf(xsid)<0)xsid=ids[0];v=xView(xsid);o=(v.days||{})[xdate]||{};
   (v.subj||[]).forEach(function(s){tot+=Number(o[s.id])||0});
   h='<select id="xsel" class="in" style="margin-bottom:10px">'+ids.map(function(sid){return '<option value="'+sid+'"'+(sid===xsid?' selected':'')+'>'+esc(ROSTER[sid])+' · '+sid+'</option>'}).join("")+'</select><div class="mut" style="margin:0 2px 8px">이 날 합계 <b style="color:'+A+';font-weight:500">'+T(tot)+'</b>'+(xPendN(xsid)?' · <span style="color:#E8B93C">적용 대기 '+xPendN(xsid)+'</span>':'')+'</div>';
+  if(v.bad)return h+'<div class="mut" style="padding:16px 0">이 학생의 기록을 읽지 못해서 수정할 수 없어요.</div>';
   return h+(v.subj||[]).map(function(s){var sec=Number(o[s.id])||0;return xRow('<i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+s.c+';margin-right:7px"></i>'+esc(s.n),T(sec),0,xInp(s.id,String(+(sec/60).toFixed(1)),"분"))}).join("")}
-function xPtsV(){var rows=xIds().map(function(sid){return{sid:sid,n:ROSTER[sid],p:Math.round(Number(xView(sid).points)||0)}}).sort(function(a,b){return b.p-a.p||(a.n<b.n?-1:1)});
-  return '<div class="sc" style="padding:12px 14px 30px">'+xHead('포인트 수정','바꿀 포인트를 입력하세요. 비워 둔 칸은 그대로예요. 입력한 값과 현재 값의 차이만큼 더하거나 빼요.')+xBulkBar("포인트")+rows.map(function(r){return xRow(esc(r.n)+' <span class="mut">'+r.sid+'</span>','현재 <span style="color:#F0B44A">★ '+r.p.toLocaleString()+'P</span>',xPendN(r.sid),xInp(r.sid,String(r.p),"P"))}).join("")+xSave("t-psave","포인트 저장")+'</div>'}
+function xPtsV(){var rows=xIds().map(function(sid){var v=xView(sid);return{sid:sid,n:ROSTER[sid],p:Math.round(Number(v.points)||0),pk:v.pk,bad:v.bad}}).sort(function(a,b){return b.p-a.p||(a.n<b.n?-1:1)});
+  return '<div class="sc" style="padding:12px 14px 30px">'+xHead('포인트 수정','바꿀 포인트를 입력하세요. 비워 둔 칸은 그대로예요. 입력한 값과 현재 값의 차이만큼 더하거나 빼요.')+xBulkBar("포인트")+rows.map(function(r){return xRow(esc(r.n)+' <span class="mut">'+r.sid+'</span>',(r.bad?'읽기 실패':r.pk?'현재 포인트를 알 수 없어요 · 변경량(±)을 입력':'현재 <span style="color:#F0B44A">★ '+r.p.toLocaleString()+'P</span>'),xPendN(r.sid),r.bad?'<span class="mut">수정 불가</span>':r.pk?xInp(r.sid,"±","P",1):xInp(r.sid,String(r.p),"P"))}).join("")+xSave("t-psave","포인트 저장")+'</div>'}
 function auditHTML(list,max){return list.length?list.slice(0,max).map(function(e){var d=new Date(e.at);return '<div style="padding:8px 0;border-bottom:1px solid #292929;font-size:13px"><div>'+esc(e.n)+' <span class="mut">'+esc(e.sid)+' · '+(e.k==="pts"?'포인트':'시간')+'</span></div><div class="mut">'+esc(e.x)+'</div><div class="mut">'+(d.getMonth()+1)+'/'+d.getDate()+' '+hm(e.at)+'</div></div>'}).join(""):'<div class="mut">변경 기록이 없어요.</div>'}
 function xLogV(){return '<div class="sc" style="padding:12px 14px 30px">'+xHead('변경 기록','10832에서 바꾼 시간·포인트 내역이에요. 담임 선생님도 데이터 관리에서 볼 수 있어요.')+'<div class="card">'+auditHTML(xAudit,100)+'</div></div>'}
 function xBulk(kind){var el=$("#xbn"),n=el?Number(el.value):NaN;if(!el||el.value===""||!Number.isFinite(n)||n<0){toast("숫자를 먼저 입력해줘");return}
-  xIds().forEach(function(sid){var inp=$("#xi-"+sid);if(!inp)return;var cur=xv==="pts"?(Number(xView(sid).points)||0):xGet(sid,xdate,xsj).sec/60,nv=kind==="set"?n:kind==="add"?cur+n:Math.max(0,cur-n);inp.value=String(+nv.toFixed(2))});
+  xIds().forEach(function(sid){var inp=$("#xi-"+sid);if(!inp)return;var vw=xView(sid);if(vw.bad)return;if(xv==="pts"&&vw.pk){if(kind!=="set")inp.value=String(kind==="add"?n:-n);return}var cur=xv==="pts"?(Number(vw.points)||0):xGet(sid,xdate,xsj).sec/60,nv=kind==="set"?n:kind==="add"?cur+n:Math.max(0,cur-n);inp.value=String(+nv.toFixed(2))});
   toast("미리 채웠어요. 저장을 눌러야 반영돼요")}
 function xSaveTime(){if(xBusy)return;var date=xdate,groups={},logs=[],lines=[],cnt=0;if(!date||date>today()){toast("날짜를 확인해줘");return}
   function add(sid,s,name,sec0,inp){if(!inp||inp.value==="")return;var m=Number(inp.value);if(!Number.isFinite(m)||m<0)return;var sec=Math.round(m*60);if(sec===sec0)return;
@@ -841,8 +858,8 @@ function xSaveTime(){if(xBusy)return;var date=xdate,groups={},logs=[],lines=[],c
   if(!cnt){toast("바뀐 값이 없어요");return}
   dlg("시간 수정 확인",date+" · "+cnt+"건<br><span class=\"mut\">"+lines.slice(0,8).join("<br>")+(cnt>8?"<br>외 "+(cnt-8)+"건":"")+"</span>",function(){xCommit(groups,logs)})}
 function xSavePts(){if(xBusy)return;var groups={},logs=[],lines=[],cnt=0;
-  xIds().forEach(function(sid){var inp=$("#xi-"+sid);if(!inp||inp.value==="")return;var n=Number(inp.value);if(!Number.isFinite(n)||n<0)return;n=Math.round(n);var cur=Math.round(Number(xView(sid).points)||0),dv=n-cur;if(!dv)return;
-    groups[sid]=[{id:uid(),t:"pts",v:dv}];logs.push({at:Date.now(),sid:sid,n:ROSTER[sid],k:"pts",x:cur+"P → "+n+"P ("+(dv>0?"+":"")+dv+"P)"});lines.push(esc(ROSTER[sid])+" "+cur+"P → "+n+"P");cnt++});
+  xIds().forEach(function(sid){var inp=$("#xi-"+sid);if(!inp||inp.value==="")return;var vw=xView(sid),n=Number(inp.value);if(vw.bad||!Number.isFinite(n))return;n=Math.round(n);if(!vw.pk&&n<0)return;var cur=vw.pk?0:Math.round(Number(vw.points)||0),dv=vw.pk?n:n-cur;if(!dv)return;
+    groups[sid]=[{id:uid(),t:"pts",v:dv}];logs.push({at:Date.now(),sid:sid,n:ROSTER[sid],k:"pts",x:vw.pk?(dv>0?"+":"")+dv+"P":cur+"P → "+n+"P ("+(dv>0?"+":"")+dv+"P)"});lines.push(esc(ROSTER[sid])+" "+(vw.pk?(dv>0?"+":"")+dv+"P":cur+"P → "+n+"P"));cnt++});
   if(!cnt){toast("바뀐 값이 없어요");return}
   dlg("포인트 수정 확인",cnt+"명<br><span class=\"mut\">"+lines.slice(0,8).join("<br>")+(cnt>8?"<br>외 "+(cnt-8)+"명":"")+"</span>",function(){xCommit(groups,logs)})}
 function tmpAct(a,el){var v=el.dataset.v;
@@ -853,6 +870,8 @@ function tmpAct(a,el){var v=el.dataset.v;
   else if(a==="t-dn"){var d=new Date(xdate+"T00:00:00");d.setDate(d.getDate()+(+v));var k=key(d);if(k>today())return;xdate=k;xrender()}
   else if(a==="t-dt"){xdate=today();xrender()}
   else if(a==="t-bulk")xBulk(v);
+  else if(a==="t-pers"){xpers=xpers?0:1;xrender()}
+  else if(a==="t-fix")xFixAll();
   else if(a==="t-save")xSaveTime();
   else if(a==="t-psave")xSavePts()}
 /* ───────── 이벤트 ───────── */
@@ -920,6 +939,7 @@ $("#y").onclick=function(e){var el=e.target.closest("[data-a]");
   else if(a==="rs"){rsc=id;render()}
   else if(a==="rp"){rper=el.dataset.p;if(rper==="p"&&!rdate)rdate=today();render()}
   else if(a==="rsj"){rsub=v||"";render()}
+  else if(a==="rpers"){rpers=rpers?0:1;if(!rpers&&rsub&&DEFSUBJ.indexOf(rsub)<0)rsub="";render()}
   else if(a==="rdn"){var d0=new Date((rdate||today())+"T00:00:00");d0.setDate(d0.getDate()+(+v));var k0=key(d0);if(k0>today())return;if(k0<rMin()){toast("최근 40일 기록만 볼 수 있어요");return}rdate=k0;render()}
   else if(a==="ed-nick"){ed="nick";render()}
   else if(a==="ed-msg"){ed="msg";render()}
