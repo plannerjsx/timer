@@ -174,6 +174,8 @@ var DD={s:"",st:0,du:0,rp:0};
 var ADMIN="10800",SHOP_ADMIN="10805",TEMP="10832",conf={tabs:{todo:1,cal:1,group:1,rank:1},lock:0,notice:""};
 var SHOP_DEFAULT={roulette:[{v:100,p:60},{v:150,p:15},{v:200,p:10},{v:0,p:10},{v:300,p:3},{v:500,p:2}],pointRouletteRestored:true,snack:{price:4000,win:20},gifts:[{id:"g1000",name:"기프트카드 1,000원",price:25000,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:28000,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:31000,stock:1}],orders:[],giftRoulette:[{id:"g1000",name:"기프트카드 1,000원",price:50,giftChance:0.1,stock:1},{id:"g5000",name:"기프트카드 5,000원",price:100,giftChance:0.09,stock:1},{id:"g10000",name:"기프트카드 10,000원",price:200,giftChance:0.01,stock:1}],giftPointRewards:[{v:5,p:50},{v:10,p:20},{v:20,p:15},{v:40,p:10},{v:50,p:5},{v:60,p:0}]};var shopCfg=null,shopBusy=0,shopSpin=0,shopRot=0,giftWheelRot={},shopLast=null,shopSkipFn=null,rspeed=1,snackLast=null;
 var sum=function(a,b){return a+b};
+/* v1.2 안전장치: 타이머 한 번(시작~종료)에 기록되는 최대 시간(초). 잊고 켜 둔 타이머가 23시간씩 쌓이는 것을 막아요. 바꾸려면 숫자만 고치면 돼요 */
+var MAX_RUN=4*3600,forceW=0;
 var key=function(d){return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())};
 var today=function(){return key(new Date())};
 var T=function(s){s=Math.max(0,Math.floor(s));return Math.floor(s/3600)+":"+p2(Math.floor(s%3600/60))+":"+p2(s%60)};
@@ -188,7 +190,7 @@ function applyCosmetics(){var themes={default:{bg:"#14161b",fg:"#ececec"},ocean:
 function buyCosmetic(kind,name,cost){var owned=kind==="theme"?D.ownedThemes:D.ownedFonts;if(owned.indexOf(name)>=0){D[kind]=name;applyCosmetics();save();render();toast("적용했어요");return}if((D.points||0)<cost){toast("포인트가 부족해요");return}D.points-=cost;owned.push(name);D[kind]=name;applyCosmetics();save();render();toast("구매하고 적용했어요")}
 function SB(id){for(var i=0;i<D.subj.length;i++)if(D.subj[i].id===id)return D.subj[i];return{id:id,n:"(삭제된 과목)",c:"#666"}}
 function dayTot(k){var o=D.days[k]||{},t=0,x;for(x in o)t+=o[x];return t}
-function act(){var r=D.run;return r?r.acc+(r.paused?0:(nowMs()-r.since)/1000):0}
+function act(){var r=D.run;return r?Math.min(MAX_RUN,r.acc+(r.paused?0:(nowMs()-r.since)/1000)):0}
 function cur(id){return ((D.days[today()]||{})[id]||0)+(D.run&&D.run.s===id?act():0)}
 function tot(){return dayTot(today())+act()}
 function tcur(id){return (D.tsec[id]||0)+(D.run&&D.run.task===id?act():0)}
@@ -198,7 +200,18 @@ function toast(m){var t=$("#ts");t.textContent=m;t.classList.add("on");clearTime
 function dlg(t,m,f,hideNo){dok=f;$("#dl").innerHTML='<div style="background:#22252d;border-radius:22px;padding:20px;width:100%;max-width:320px"><div style="font-size:17px;margin-bottom:10px">'+t+'</div><div style="font-size:14px;color:#ccc;line-height:1.6">'+m+'</div><div style="display:flex;gap:8px;margin-top:18px">'+(hideNo?'':'<button data-a="dno" style="flex:1;height:44px;border-radius:22px;background:#444;font-size:15px">취소</button>')+'<button data-a="dok" style="flex:1;height:44px;border-radius:22px;background:'+A+';color:#fff;font-size:15px">확인</button></div></div>';$("#dl").classList.add("on")}
 /* ───────── 저장/공개 ───────── */
 function save(){dirty=1;clearTimeout(saveT);saveT=setTimeout(flush,700)}
-async function flush(){if(!me||!dirty)return;dirty=0;var ok=await dset("yp-data:"+me.sid,D);if(!ok){dirty=1;toast("저장에 실패했어. 곧 다시 시도할게");clearTimeout(saveT);saveT=setTimeout(flush,8000)}}
+/* 서버에 있는 기록이 이 기기 것보다 많으면 올려서 합친다. 시간이 줄거나 사라지는 일은 없어요(다른 기기에서 저장한 기록을 오래된 화면이 덮어쓰는 것을 막음) */
+function mergeUp(R){if(!D||!R||typeof R!=="object"||!R.days||typeof R.days!=="object")return 0;var ch=0,add={};if(!D.days)D.days={};
+  Object.keys(R.days).forEach(function(k){var ro=R.days[k];if(!ro||typeof ro!=="object")return;
+    Object.keys(ro).forEach(function(s){var rv=Math.round(Number(ro[s])||0);if(rv<=0)return;var lo=D.days[k]||(D.days[k]={}),lv=Number(lo[s])||0;if(rv>lv){lo[s]=rv;ch++;add[s]=1}})});
+  if(ch&&Array.isArray(R.subj)&&Array.isArray(D.subj)){Object.keys(add).forEach(function(s){if(D.subj.some(function(y){return y.id===s}))return;var f=R.subj.filter(function(y){return y&&y.id===s})[0];if(f)D.subj.push({id:f.id,n:f.n,c:f.c})})}
+  if(ch&&Number(R.pointBlocks)>Number(D.pointBlocks||0)){D.pointBlocks=Number(R.pointBlocks);D.points=Number(R.points)||0}
+  return ch}
+async function syncDown(){if(!me||!D)return 0;var R=await dget("yp-data:"+me.sid);if(!R||typeof R!=="object")return 0;var n=mergeUp(R);if(n){syncPoints();save();pushPub()}return n}
+async function flush(direct){if(!me||!dirty)return;dirty=0;var wasF=forceW?1:0,force=wasF||direct===1;
+  if(!force){var R=await dget("yp-data:"+me.sid);if(R===undefined){dirty=1;clearTimeout(saveT);saveT=setTimeout(flush,8000);return}
+    if(R&&mergeUp(R)){pushPub();if(scr==="app"&&!lst)render()}}
+  forceW=0;var ok=await dset("yp-data:"+me.sid,D);if(!ok){dirty=1;if(wasF)forceW=1;toast("저장에 실패했어. 곧 다시 시도할게");clearTimeout(saveT);saveT=setTimeout(flush,8000)}}
 function buildPub(sid,d,r){var nm={},days={},sd={},byId={},sn=[],i,k,o,t,m,dt;
   (d.subj||[]).forEach(function(x){var name=String(x.n||"").trim();nm[x.id]=name;if(name&&sn.indexOf(name)<0)sn.push(name)});
   for(i=0;i<40;i++){dt=new Date();dt.setDate(dt.getDate()-i);k=key(dt);o=(d.days&&d.days[k])||{};t=0;m={};
@@ -215,17 +228,19 @@ window.nativePull=function(){if(!NA||!D||scr!=="app")return;var arr=[];try{arr=J
   arr.forEach(function(x){if(!D.run)return;clk=x.ts;try{if(x.a==="toggle")pause();else if(x.a==="stop")stopRun()}finally{clk=0}});
   anim=1;render();toast("알림에서 바꾼 내용을 반영했어요")};
 function addDay(k,s,v){if(v<=0)return;D.days[k]=D.days[k]||{};D.days[k][s]=(D.days[k][s]||0)+Math.round(v)}
-function bank(){var r=D.run;if(!r)return;var a=act(),now=nowMs(),mid=new Date(now);mid.setHours(0,0,0,0);var t0k=key(new Date(r.t0)),tk=key(new Date(now));
+/* 기록이 끝난 시각: 일시정지 중이면 멈춘 시각, 최대 시간이 찼으면 그 시각 */
+function runEnd(r){var now=nowMs();if(r.paused)return Math.min(now,r.rst||now);return Math.min(now,r.since+Math.max(0,MAX_RUN-(Number(r.acc)||0))*1000)}
+function bank(){var r=D.run;if(!r)return;var a=act(),now=runEnd(r),mid=new Date(now);mid.setHours(0,0,0,0);var t0k=key(new Date(r.t0)),tk=key(new Date(now));
   if(t0k===tk)addDay(tk,r.s,a);else{var post=Math.min(a,(now-mid.getTime())/1000);addDay(tk,r.s,post);addDay(t0k,r.s,a-post)}
   if(r.task)D.tsec[r.task]=(D.tsec[r.task]||0)+a;D.run=null}
 function start(s,task){if(D.run)bank();D.run={s:s,task:task||0,acc:0,since:nowMs(),paused:false,rc:0,rs:0,rst:0,t0:nowMs(),ping:nowMs()};persist()}
-function pause(){var r=D.run;if(!r)return;if(r.paused){r.rs+=(nowMs()-r.rst)/1000;r.since=nowMs();r.paused=false}else{r.acc+=(nowMs()-r.since)/1000;r.paused=true;r.rc++;r.rst=nowMs()}r.ping=nowMs();persist()}
+function pause(){var r=D.run;if(!r)return;if(r.paused){r.rs+=(nowMs()-r.rst)/1000;r.since=nowMs();r.paused=false}else{r.acc=Math.min(MAX_RUN,r.acc+(nowMs()-r.since)/1000);r.paused=true;r.rc++;r.rst=nowMs()}r.ping=nowMs();persist()}
 function stopRun(){bank();persist()}
 async function checkAdminCommand(force){
  if(!D||!me||(!force&&(scr!=="app"||Date.now()-cmdCheckAt<4000)))return;
  cmdCheckAt=Date.now();
  var c=await dget("yp-admincmd:"+me.sid);if(!c||!c.action)return;
- var a=c.action;
+ var a=c.action;if(a==="edit"||a==="reset"){await syncDown();forceW=1}
  if(a==="edit"){var n=applyAdminOps(c.ops);if(n){toast("관리자가 공부 시간·포인트를 수정했어요");if(scr==="app")render()}a=c.then||""}
  if(a==="stop"){
   if(D.run){stopRun();toast("담임 선생님이 타이머를 중지했어요")}
@@ -234,7 +249,11 @@ async function checkAdminCommand(force){
  }
  var c2=await dget("yp-admincmd:"+me.sid);if(c2&&c2.at===c.at)await ddel("yp-admincmd:"+me.sid);
 }
+/* 최대 시간에 닿은 타이머는 거기까지만 기록하고 끝낸다(이미 쌓인 기록은 건드리지 않음) */
+function autoStop(){if(!D||!D.run)return false;bank();if(typeof D.pointBlocks==="number")D.pointBlocks=Math.floor(totalStudySeconds()/1800);persist();
+  setTimeout(function(){toast("한 번에 최대 "+Math.round(MAX_RUN/3600)+"시간까지만 기록돼요. 타이머를 자동으로 종료했어요")},700);return true}
 function fixStale(){var r=D.run;if(!r)return;var now=Date.now();
+  if(act()>=MAX_RUN){autoStop();return}
   // 실행 중인 타이머는 백그라운드에서 돌리지 않고 시작 시각을 기준으로 재접속 시 경과 시간을 계산한다.
   // 일시정지 상태만 오래 방치되면 종료 처리한다.
   if(r.paused&&now-r.rst>10800000){bank();persist()}}
@@ -243,7 +262,7 @@ var CLASS={id:"class",name:"우리 반",fx:1,members:Object.keys(ROSTER).filter(
 function allG(){return [CLASS].concat(myG)}
 function gf(id){var a=allG();for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return CLASS}
 function fresh(r){return Date.now()-(r.ping||0)<300000}
-function liveOf(x){var r=x&&x.run;return r&&fresh(r)?(r.acc+(r.paused?0:(Date.now()-r.since)/1000)):0}
+function liveOf(x){var r=x&&x.run;return r&&fresh(r)?Math.min(MAX_RUN,r.acc+(r.paused?0:(Date.now()-r.since)/1000)):0}
 function span(per,get){var n=new Date(),L=per==="d"?1:per==="w"?(n.getDay()+6)%7+1:n.getDate(),t=0,i,d;for(i=0;i<L;i++){d=new Date(n);d.setDate(n.getDate()-i);t+=get(key(d))}return t}
 function myDay(k,sj){var o=D.days[k]||{},t=0,td=k===today();
   if(!sj)return dayTot(k)+(td?act():0);
@@ -599,7 +618,7 @@ function render(){if(scr!=="app")return;if(shopSpin&&tab==="shop")return;var wa=
   var tb=$("#tbar");if(tab==="todo"&&addTo){tb.style.display="flex";tb.innerHTML=tbar()}else tb.style.display="none";
   var f=tab==="todo"&&addTo?"#ai":tab==="group"&&gv==="create"?"#gn":tab==="settings"&&ed&&ed!=="dday"?"#ei":"";if(f)setTimeout(function(){var e=$(f);if(e)e.focus()},0)}
 function paint(){if(!D)return;var ic=D.run&&D.run.paused?I("play",18):I("pause",18),a=$("#pz"),b=$("#sp");if(a)a.innerHTML=ic;if(b)b.innerHTML=ic}
-function tick(){if(scr!=="app"||!D)return;checkAdminCommand();syncPoints();var a=act(),e,r=D.run;
+function tick(){if(scr!=="app"||!D)return;if(D.run&&act()>=MAX_RUN){autoStop();anim=1;render();return}checkAdminCommand();syncPoints();var a=act(),e,r=D.run;
   if(e=$("#tt"))e.textContent=T(tot());
   document.querySelectorAll(".r .tm").forEach(function(x){x.textContent=T(cur(x.dataset.s))});
   document.querySelectorAll(".mt").forEach(function(x){x.textContent=T(tot())});
@@ -758,9 +777,12 @@ function enterAdmin(){scr="adm";av="home";asid="";aD=null;$("#auth").style.displ
 async function saveConf(){var ok=await dset("yp-conf",conf);toast(ok?"저장했어요":"저장에 실패했어요")}
 function csvc(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
 async function aExport(){var ids=Object.keys(ROSTER).filter(isStu),rows=["학번,이름,날짜,과목,초"],docs=await Promise.all(ids.map(function(i){return dget("yp-data:"+i)}));
+  var retry=[];docs.forEach(function(d,j){if(d===undefined)retry.push(j)});
+  if(retry.length){var again=await Promise.all(retry.map(function(j){return dget("yp-data:"+ids[j])}));retry.forEach(function(j,q){docs[j]=again[q]})}
+  var badN=ids.filter(function(i,j){return docs[j]===undefined}).map(function(i){return ROSTER[i]});
   docs.forEach(function(d,j){if(!d)return;var nm={};(d.subj||[]).forEach(function(s){nm[s.id]=s.n});Object.keys(d.days||{}).sort().forEach(function(k){Object.keys(d.days[k]).forEach(function(s){rows.push([ids[j],ROSTER[ids[j]],k,nm[s]||"(삭제된 과목)",Math.round(d.days[k][s])].map(csvc).join(","))})})});
   if(rows.length<2){toast("내보낼 기록이 없어요");return}
-  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"}));a.download="공부기록_"+today()+".csv";document.body.appendChild(a);a.click();a.remove();toast("CSV를 내려받았어요")}
+  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"}));a.download="공부기록_"+today()+".csv";document.body.appendChild(a);a.click();a.remove();toast(badN.length?"CSV를 내려받았어요. 단, 읽지 못한 학생이 있어요: "+badN.join(", "):"CSV를 내려받았어요")}
 async function admAct(a,el){var v=el.dataset.v,id=el.dataset.id;
   if(a==="m-av"){av=v;asid="";aD=null;$("#ab").scrollTop=0;if(v==="shoporders")await loadShop();admRender();if(v==="groups"&&!grps.length)aLoad(false)}
   else if(a==="m-rf")aLoad(true);
@@ -824,8 +846,12 @@ async function xSend(sid,ops){var ex=await dget("yp-admincmd:"+sid);if(ex===unde
   var c;if(ex&&ex.action==="edit"){c={action:"edit",ops:(ex.ops||[]).concat(ops),at:Date.now()};if(ex.then)c.then=ex.then}
   else{c={action:"edit",ops:ops,at:Date.now()};if(ex&&ex.action)c.then=ex.action}
   var ok=await dset("yp-admincmd:"+sid,c);if(!ok)throw Error("전송 실패");return c}
+/* 랭킹용 데이터를 만들 때는 화면에 들고 있던 옛 기록(xAll)이 아니라 서버의 최신 기록을 새로 읽어서 써요 */
+async function xFreshView(sid){var r=await xFetch("yp-data:"+sid);if(r.err||!r.doc||typeof r.doc!=="object")return null;var c=await dget("yp-admincmd:"+sid);if(c===undefined)return null;
+  xAll[sid]=JSON.parse(JSON.stringify(r.doc));var d=r.doc;if(!Array.isArray(d.subj)||!d.subj.length)d.subj=newD().subj;if(!d.days)d.days={};if(c&&c.action==="edit"&&c.ops)applyOps(d,c.ops);return d}
 async function xPubUpdate(sid,ops){var old=await dget("yp-pub:"+sid);if(old===undefined)return;
-  if(xAll[sid]){var p=buildPub(sid,xView(sid),old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}await dset("yp-pub:"+sid,p);return}
+  var fv=await xFreshView(sid);
+  if(fv){var p=buildPub(sid,fv,old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}await dset("yp-pub:"+sid,p);return}
   if(!old)return;old.days=old.days||{};old.sd=old.sd||{};
   (ops||[]).forEach(function(o){if(o.t!=="time")return;if(!old.sd[o.date]&&Number(old.days[o.date])>0)return;var m=old.sd[o.date]||{},prev=Number(m[o.n])||0,sec=Math.round(o.sec);
     if(sec>0)m[o.n]=sec;else delete m[o.n];if(Object.keys(m).length)old.sd[o.date]=m;else delete old.sd[o.date];
@@ -839,8 +865,8 @@ function xFixAll(){var ids=Object.keys(xAll);if(!ids.length){toast("읽어온 �
     if(!okb){dlg("백업 실패","현재 랭킹 데이터를 백업하지 못했어요.<br>백업 없이 계속하면 되돌릴 수 없어요.",xFixRun);return}
     xFixRun()})}
 async function xFixRun(){var ids=Object.keys(xAll);xBusy=1;toast("만드는 중...");var n=0;
-    await Promise.all(ids.map(async function(sid){try{var old=await dget("yp-pub:"+sid);if(old===undefined)return;var p=buildPub(sid,xView(sid),old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}if(await dset("yp-pub:"+sid,p))n++}catch(e){}}));
-    xBusy=0;try{await loadPubs(true)}catch(e){}toast(n+"명의 랭킹 데이터를 만들었어요");xrender()}
+    var fail=0;await Promise.all(ids.map(async function(sid){try{var old=await dget("yp-pub:"+sid);if(old===undefined){fail++;return}var fv=await xFreshView(sid);if(!fv){fail++;return}var p=buildPub(sid,fv,old&&old.run?old.run:null);if(old){p.nick=old.nick||p.nick;p.msg=old.msg||p.msg}if(await dset("yp-pub:"+sid,p))n++;else fail++}catch(e){fail++}}));
+    xBusy=0;try{await loadPubs(true)}catch(e){}toast(n+"명의 랭킹 데이터를 만들었어요"+(fail?" (읽기 실패 "+fail+"명은 그대로 뒀어요)":""));xrender()}
 /* ───────── 10832 랭킹 데이터 백업 / 복구 ───────── */
 var BAK_MAX=8;
 function bakWhen(t){var d=new Date(t);return (d.getMonth()+1)+"/"+d.getDate()+" "+hm(t)}
@@ -1029,10 +1055,11 @@ $("#y").addEventListener("change",function(e){var t=e.target;if(!t||!t.id)return
   if(t.id==="rdi"&&t.value){var td=today();rdate=t.value>td?td:t.value;if(rdate<rMin()){rdate=rMin();toast("최근 40일 기록만 볼 수 있어요")}render()}
   else if(t.id==="xdi"&&t.value){xdate=t.value>today()?today():t.value;xrender()}
   else if(t.id==="xsel"){xsid=t.value;xrender()}});
-document.addEventListener("visibilitychange",function(){if(!document.hidden&&scr==="app"){fixStale();render();if(window.nativePull)window.nativePull()}});
-window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused){D.run.ping=Date.now()}save();flush()}});
+document.addEventListener("visibilitychange",function(){if(!document.hidden&&scr==="app"){fixStale();render();if(window.nativePull)window.nativePull();syncDown().then(function(n){if(n&&scr==="app"){render();toast("다른 기기의 공부 기록을 합쳤어요")}},function(){})}});
+window.addEventListener("pagehide",function(){if(D&&me){if(D.run&&!D.run.paused){D.run.ping=Date.now()}save();flush(1)}});
 setInterval(tick,250);
 setInterval(function(){if(scr==="app"&&D&&D.run&&!D.run.paused){D.run.ping=Date.now();save();pushPub()}},120000);
+setInterval(function(){if(scr==="app"&&D&&!document.hidden)syncDown().then(function(n){if(n)render()},function(){})},180000);
 /* ───────── 시작 ───────── */
 showAuth("load");
 fbAuth.onAuthStateChanged(async function(user){
